@@ -576,4 +576,4 @@ if __name__ == '__main__':
     # log.prepare_dataframe()
     # log.summarize_beams()
     log.plot_beam_layers()    
-    # log.plot_spot_statistics()
+    log.plot_spot_statistics()
