@@ -9,6 +9,7 @@ import sys
 import pydicom
 import pandas as pd
 import numpy as np
+from scipy import stats
 from tkinter import Tk, filedialog
 from matplotlib import pyplot as plt
 
@@ -29,7 +30,7 @@ class MachineLog:
                 elif index == len(os.listdir(self.logfile_dir)) - 1:
                     valid_dir = True
         
-        self.df_destination = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\dataframes'  # TO BE CHANGED
+        self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'  # TO BE CHANGED
         self.patient_record_df, self.patient_tuning_df = pd.DataFrame(), pd.DataFrame()  # initialize empty patient dataframes
         self.fraction_list = os.listdir(self.logfile_dir)
         self.num_fractions = len(self.fraction_list)
@@ -141,8 +142,10 @@ class MachineLog:
                     correction_factor = chamber_correction * (ref_pressure * temperature) / (ref_temperature * pressure)  # classic chamber-specific * (p_0*T) / (T_0*p)
                     beam_file.close()
                 
+                layer_exceptions = []
                 for layer_id in range(num_layers):
                     to_do_layers, to_do_tunings = [], []
+                    no_exceptions = True
                     for record_file in map_records:  # actual (processed) log-file analysis
                         if int(record_file.split('_')[2].split('_')[0]) == layer_id:
                             record_file_df = pd.read_csv(record_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
@@ -154,6 +157,10 @@ class MachineLog:
                             record_file_df.drop(columns=['TIME'], inplace=True)
                             record_file_df = record_file_df.loc[(record_file_df['X_WIDTH(mm)'] != -10000.0) & (record_file_df['Y_WIDTH(mm)'] != -10000.0) & (record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0)]
                                                                                                 # drop all rows where no spot is targeted (machine stuff going on)
+                            if record_file_df.empty:  # in case no usable information left in log-file, skip these occasions (very unlikely)
+                                no_exceptions = False
+                                continue
+                            
                             current_spot_submap = record_file_df['SUBMAP_NUMBER'].min()
                             current_spot_id = 0
                             record_file_df['SPOT_ID'] = 0
@@ -196,15 +203,23 @@ class MachineLog:
 
                     for tuning_file in tunings:  # do the same for all tuning files
                         if int(tuning_file.split('_')[2].split('_')[0]) == layer_id:
-                            tuning_file_df = pd.read_csv(tuning_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
-                            tuning_file_df['TIME'] = pd.to_datetime(tuning_file_df['TIME'])
-                            tuning_file_df.index = tuning_file_df['TIME']
-                            charge_col = pd.Series(tuning_file_df['DOSE_PRIM(C)'])
-                            tuning_file_df = tuning_file_df.loc[:, :'Y_POSITION(mm)']
-                            tuning_file_df['DOSE_PRIM(C)'] = charge_col
-                            tuning_file_df.drop(columns=['TIME'], inplace=True)
-                            tuning_file_df = tuning_file_df.loc[(tuning_file_df['X_WIDTH(mm)'] != -10000.0) & (tuning_file_df['Y_WIDTH(mm)'] != -10000.0) & (tuning_file_df['X_POSITION(mm)'] != -10000.0) & (tuning_file_df['Y_POSITION(mm)'] != -10000.0)]
-                            
+                            try:
+                                tuning_file_df = pd.read_csv(tuning_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
+                                tuning_file_df['TIME'] = pd.to_datetime(tuning_file_df['TIME'])
+                                tuning_file_df.index = tuning_file_df['TIME']
+                                charge_col = pd.Series(tuning_file_df['DOSE_PRIM(C)'])
+                                tuning_file_df = tuning_file_df.loc[:, :'Y_POSITION(mm)']
+                                tuning_file_df['DOSE_PRIM(C)'] = charge_col
+                                tuning_file_df.drop(columns=['TIME'], inplace=True)
+                                tuning_file_df = tuning_file_df.loc[(tuning_file_df['X_WIDTH(mm)'] != -10000.0) & (tuning_file_df['Y_WIDTH(mm)'] != -10000.0) & (tuning_file_df['X_POSITION(mm)'] != -10000.0) & (tuning_file_df['Y_POSITION(mm)'] != -10000.0)]
+                            except KeyError:
+                                print(f'''\n  /!\ Key error occured while handling tuning file '{tuning_file}' dataframe (layer {str(layer_id).zfill(2)})''')
+                                continue
+
+                            if tuning_file_df.empty:  # in case of low-weighted tuning spots, no usable information will be left in log-file, skip these occasions
+                                no_exceptions = False
+                                continue
+
                             current_spot_submap = tuning_file_df['SUBMAP_NUMBER'].min()
                             current_spot_id = 0
                             tuning_file_df['SPOT_ID'] = 0
@@ -279,10 +294,20 @@ class MachineLog:
                     
                     del layer_df, tuning_df
                     
-                    if layer_id == (num_layers - 1):  # progress visualization
-                        print('  ', '[' + (layer_id + 1) * '#' + (num_layers - layer_id - 1) * '-' + ']', end=f' Beam {beam_id} complete\n')
+                    if no_exceptions:
+                        char = '#'
                     else:
-                        print('  ', '[' + (layer_id + 1) * '#' + (num_layers - layer_id - 1) * '-' + ']', end=f' Layer {str(layer_id + 1).zfill(2)}/{str(num_layers).zfill(2)}\r')
+                        char = '_'
+
+                    if layer_id == (num_layers - 1):  # progress visualization
+                        if no_exceptions:
+                            print('  ', '[' + (layer_id + 1) * char + (num_layers - layer_id - 1) * '-' + ']', end=f' Beam {beam_id} complete\n')
+                        else:    
+                            print('  ', '[' + (layer_id + 1) * char + (num_layers - layer_id - 1) * '-' + ']', end=f' Beam {beam_id} complete (empty dataframe exception in layer(s) {layer_exceptions})\n')
+                    else:
+                        print('  ', '[' + (layer_id + 1) * char + (num_layers - layer_id - 1) * '-' + ']', end=f' Layer {str(layer_id + 1).zfill(2)}/{str(num_layers).zfill(2)}\r')
+                    
+                    no_exceptions = True
 
                 os.chdir(self.logfile_dir) 
 
@@ -310,6 +335,7 @@ class MachineLog:
         beam_list = self.patient_record_df['BEAM_ID'].drop_duplicates()
         indices = beam_list.index.to_list()
 
+        print('\nSelect beam key for layer-wise spot plotting:\n')
         print('Key\tBeam-ID\t\tGantry Angle\tLayers\tFrom Fraction\n')  # choose beam
         for choice, (index, beam) in enumerate(zip(indices, beam_list)):
             num_layers = int(self.patient_record_df['TOTAL_LAYERS'][index].mean())
@@ -373,7 +399,8 @@ class MachineLog:
                     print('ERROR: File not found or none selected, try again..')
                 root.destroy()
         
-        print('\nGenerating plots..')
+        del dcm_target, dcm_beam_id
+        print('\nGenerating layer plot..')
         fig, axs = plt.subplots(6, 8, sharex=True, sharey=True, figsize=(24, 24 * 6/8), dpi=150)  # initiate matrix-like layer plot
         ax0 = fig.add_subplot(111, frameon=False)
         fig.subplots_adjust(hspace=0.0, wspace=0.0)
@@ -406,17 +433,16 @@ class MachineLog:
             for xy_log in spot_points_log:
                 x_differences, y_differences = [], []
                 distances = []
-                for xy_plan in spot_points_plan:
+                for xy_plan in spot_points_plan:  # calculate position difference and euclidian distance for every spot pair, find minimum to reindex (return sorted spots)
                     diff = np.array(xy_plan) - np.array(xy_log)
-                    dist = np.sqrt((diff).dot(diff))
-                    distances.append(dist)
+                    sqdist = abs((diff).dot(diff))
+                    distances.append(sqdist)
                     x_differences.append(diff[0]), y_differences.append(diff[1])
-                
-                pos_x_delta.append(min(x_differences)), pos_y_delta.append(min(y_differences))
 
-                minimum = min(distances)
-                pos_abs_delta.append(minimum)
-                index = distances.index(minimum)
+                min_dist = min(distances)
+                pos_abs_delta.append(min_dist)
+                index = distances.index(min_dist)
+                pos_x_delta.append(x_differences[index]), pos_y_delta.append(y_differences[index])
                 xy_positions_sorted[index] = xy_log
             
             for element in xy_positions_sorted:
@@ -435,7 +461,7 @@ class MachineLog:
         ax0.set_xlabel('X [mm]', fontweight='bold', labelpad=10)
         ax0.set_ylabel('Y [mm]', fontweight='bold', labelpad=10)
         plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
-        output_dir = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\output'  # TO BE CHANGED
+        output_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\output'  # TO BE CHANGED
         if not os.path.isdir(output_dir):
             os.mkdir(output_dir)
         while True:
@@ -445,19 +471,103 @@ class MachineLog:
             except PermissionError:
                 input('  Permission denied, close target file and press ENTER.. ')
         plt.close()
+        plt.clf()
         
+        print('Generating spot position histograms..')
         fig, axs = plt.subplots(1, 2, figsize=(10, 5), dpi=150)
-        bins = 50
-        axs[0].hist(pos_x_delta, bins=bins, density=True, stacked=True, edgecolor='black', linewidth=1.0, label='$\Delta x$')
-        axs[0].hist(pos_y_delta, bins=bins, density=True, stacked=True, edgecolor='black', linewidth=1.0, label='$\Delta y$')
-        axs[0].set_xlabel('Plan - Log-file [mm]')
+        fig.subplots_adjust(hspace=4.0)
+        x_bins, y_bins = int(max(pos_x_delta) - min(pos_x_delta)) * 10, int(max(pos_y_delta) - min(pos_y_delta) * 10)
+        axs[0].hist(pos_x_delta, bins=x_bins, color='tab:blue', alpha=0.5, edgecolor='black', linewidth=1.0, label='$\Delta x$')
+        axs[0].hist(pos_y_delta, bins=y_bins, color='tab:orange', alpha=0.5, edgecolor='black', linewidth=1.0, label='$\Delta y$')
         axs[0].set_ylabel('Counts')
+        axs[0].set_xlabel('Plan - Log-file [mm]')
         axs[0].legend()
-        axs[1].hist(pos_abs_delta, bins=bins, density=True, color='white', edgecolor='black', linewidth=1.0, label='Abs. distance')
+        axs[1].hist(pos_abs_delta, bins=int(max(pos_abs_delta) - min(pos_abs_delta)) * 10, density=True, color='white', edgecolor='black', linewidth=1.0, label='Abs. distance')
         axs[1].set_xlabel('$\Delta(x, y)$ [mm]')
         axs[1].set_ylabel('Counts')
         axs[1].legend()
         plt.suptitle('Spot Position Histogram Plan vs. Log-file', fontweight='bold', y=0.95)
+        while True:
+            try:
+                plt.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_pos_stats.pdf')
+                break
+            except PermissionError:
+                input('  Permission denied, close target file and press ENTER.. ')
+        plt.clf()
+
+    def plot_spot_statistics(self):     # For one beam over all fractions:
+                                        # derive histograms and MAE-evolution by comparing log vs. plan spot positions and MU's
+        if self.patient_record_df.empty or self.patient_tuning_df.empty:
+            print(f'''\nUnable to locate patient record/tuning dataframes for patient-ID {self.patient_id}. Calling MachineLog.prepare_dataframe()..''')                
+            self.prepare_dataframe()
+
+        beam_list = [str(i) for i in self.patient_record_df['BEAM_ID'].drop_duplicates()]
+
+        print('\nTrying to auto-locate patient plan dicoms..')  # read RT plan dicom via filedialog
+        patient_dicoms = []
+        for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
+            for fname in filenames:
+                if fname.__contains__('RP') and fname.endswith('.dcm'):
+                    ds = pydicom.read_file(os.path.join(path, fname))
+                    for i, beam in enumerate(ds.IonBeamSequence):
+                        if beam.BeamName in beam_list or beam.BeamDescription in beam_list and float(beam.IonControlPointSequence[0].GantryAngle) in self.patient_record_df['GANTRY_ANGLE'].drop_duplicates():
+                            patient_dicoms.append(os.path.join(path, fname))
+
+        print('Collecting data..')
+        total_beam_maes, layer_axis = [], []  # mean absolute errors
+        for fraction_id in self.fraction_list:
+            for beam_id in beam_list:
+                scope_record_df = self.patient_record_df.loc[(self.patient_record_df['BEAM_ID'] == beam_id) & (self.patient_record_df['FRACTION_ID'] == int(fraction_id))]  # slice currently needed portion from patient df
+                scope_tuning_df = self.patient_tuning_df.loc[(self.patient_tuning_df['BEAM_ID'] == beam_id) & (self.patient_tuning_df['FRACTION_ID'] == int(fraction_id))]
+
+                for dcm in patient_dicoms:
+                    ds = pydicom.read_file(dcm)
+                    for i, beam in enumerate(ds.IonBeamSequence):
+                        if beam.BeamName == beam_id or beam.BeamDescription == beam_id and float(beam.IonControlPointSequence[0].GantryAngle) == scope_record_df.loc[scope_record_df['BEAM_ID'] == beam_id]['GANTRY_ANGLE'].mean():
+                            dcm_beam = ds.IonBeamSequence[i]
+
+                for layer_id in scope_record_df['LAYER_ID'].drop_duplicates():
+                    x_positions, y_positions = [], []
+                    x_tunings, y_tunings, = [], []
+                    dcm_layer = dcm_beam.IonControlPointSequence[layer_id * 2]
+                    plan_spotmap = dcm_layer.ScanSpotPositionMap
+                    plan_x_positions, plan_y_positions = [], []
+                    layer_abs_x_diffs, layer_abs_y_diffs = [], []
+                    for i, coord in enumerate(plan_spotmap):
+                        if i % 2 == 0:
+                            plan_x_positions.append(coord)
+                        else:
+                            plan_y_positions.append(coord)
+                    
+                    for spot_id in scope_record_df.loc[scope_record_df['LAYER_ID'] == layer_id]['SPOT_ID'].drop_duplicates():
+                        x_positions.append(scope_record_df.loc[(scope_record_df['LAYER_ID'] == layer_id) & (scope_record_df['SPOT_ID'] == spot_id)]['X_POSITION(mm)'].mean())
+                        y_positions.append(scope_record_df.loc[(scope_record_df['LAYER_ID'] == layer_id) & (scope_record_df['SPOT_ID'] == spot_id)]['Y_POSITION(mm)'].mean())
+                    for tuning_id in scope_tuning_df.loc[scope_tuning_df['LAYER_ID'] == layer_id]['SPOT_ID'].drop_duplicates():   
+                        x_tunings.append(scope_tuning_df.loc[(scope_tuning_df['LAYER_ID'] == layer_id) & (scope_tuning_df['SPOT_ID'] == tuning_id)]['X_POSITION(mm)'].mean())
+                        y_tunings.append(scope_tuning_df.loc[(scope_tuning_df['LAYER_ID'] == layer_id) & (scope_tuning_df['SPOT_ID'] == tuning_id)]['Y_POSITION(mm)'].mean())
+
+                    spot_points_log = [tuple for tuple in zip(x_positions, y_positions)]
+                    spot_points_plan = [tuple for tuple in zip(plan_x_positions, plan_y_positions)]
+                    for xy_log in spot_points_log:
+                        x_differences, y_differences = [], []
+                        distances = []
+                        for xy_plan in spot_points_plan:  # calculate position difference and euclidian distance for every spot pair, find minimum to reindex (return sorted spots)
+                            diff = np.array(xy_plan) - np.array(xy_log)
+                            sqdist = abs((diff).dot(diff))
+                            distances.append(sqdist)
+                            x_differences.append(diff[0]), y_differences.append(diff[1])
+
+                        min_dist = min(distances)
+                        index = distances.index(min_dist)
+                        layer_abs_x_diffs.append(abs(x_differences[index])), layer_abs_y_diffs.append(abs(y_differences[index]))
+                    
+                    total_beam_maes.append((np.mean(layer_abs_x_diffs) + np.mean(layer_abs_y_diffs)) / 2)
+                    layer_axis.append(str(layer_id))
+            break
+        
+        print('Generating layer MAE evolution plot..')
+        plt.plot(total_beam_maes, label='layer mean absolute error')
+        plt.legend()
         plt.show()
 
 
@@ -466,3 +576,4 @@ if __name__ == '__main__':
     # log.prepare_dataframe()
     # log.summarize_beams()
     log.plot_beam_layers()    
+    # log.plot_spot_statistics()
