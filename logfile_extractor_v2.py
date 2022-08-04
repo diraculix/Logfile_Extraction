@@ -3,7 +3,6 @@ __author__ = 'Lukas C. Wolter, OncoRay ZIK, Dresden, Germany'
 __project__ = 'Logfile-based dose calculation & beam statistics'
 __version__ = 2.0
 
-from cProfile import label
 import os
 import sys
 import pydicom
@@ -12,6 +11,8 @@ import numpy as np
 from scipy import stats
 from tkinter import Tk, filedialog
 from matplotlib import pyplot as plt
+
+output_dir = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\output'
 
 
 class MachineLog:
@@ -30,7 +31,8 @@ class MachineLog:
                 elif index == len(os.listdir(self.logfile_dir)) - 1:
                     valid_dir = True
         
-        self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'  # TO BE CHANGED
+        # self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'  # TO BE CHANGED
+        self.df_destination = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\dataframes'
         self.patient_record_df, self.patient_tuning_df = pd.DataFrame(), pd.DataFrame()  # initialize empty patient dataframes
         self.fraction_list = os.listdir(self.logfile_dir)
         self.num_fractions = len(self.fraction_list)
@@ -461,7 +463,7 @@ class MachineLog:
         ax0.set_xlabel('X [mm]', fontweight='bold', labelpad=10)
         ax0.set_ylabel('Y [mm]', fontweight='bold', labelpad=10)
         plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
-        output_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\output'  # TO BE CHANGED
+        # output_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\output'  # TO BE CHANGED
         if not os.path.isdir(output_dir):
             os.mkdir(output_dir)
         while True:
@@ -475,7 +477,7 @@ class MachineLog:
         
         print('Generating spot position histograms..')
         fig, axs = plt.subplots(1, 2, figsize=(10, 5), dpi=150)
-        fig.subplots_adjust(hspace=4.0)
+        fig.subplots_adjust(hspace=0.5)
         x_bins, y_bins = int(max(pos_x_delta) - min(pos_x_delta)) * 10, int(max(pos_y_delta) - min(pos_y_delta) * 10)
         axs[0].hist(pos_x_delta, bins=x_bins, color='tab:blue', alpha=0.5, edgecolor='black', linewidth=1.0, label='$\Delta x$')
         axs[0].hist(pos_y_delta, bins=y_bins, color='tab:orange', alpha=0.5, edgecolor='black', linewidth=1.0, label='$\Delta y$')
@@ -484,7 +486,6 @@ class MachineLog:
         axs[0].legend()
         axs[1].hist(pos_abs_delta, bins=int(max(pos_abs_delta) - min(pos_abs_delta)) * 10, density=True, color='white', edgecolor='black', linewidth=1.0, label='Abs. distance')
         axs[1].set_xlabel('$\Delta(x, y)$ [mm]')
-        axs[1].set_ylabel('Counts')
         axs[1].legend()
         plt.suptitle('Spot Position Histogram Plan vs. Log-file', fontweight='bold', y=0.95)
         while True:
@@ -514,9 +515,17 @@ class MachineLog:
                             patient_dicoms.append(os.path.join(path, fname))
 
         print('Collecting data..')
-        total_beam_maes, layer_axis = [], []  # mean absolute errors
-        for fraction_id in self.fraction_list:
-            for beam_id in beam_list:
+        total_x_maes, total_y_maes = [], []  # mean absolute errors
+        fig, axs = plt.subplots(1, len(self.fraction_list), sharey=True, figsize=(100, 5), dpi=100)
+        ax0 = fig.add_subplot(111, frameon=False)
+        ax0.set_xticks([])
+        ax0.set_yticks([])
+        fig.subplots_adjust(wspace=0.0)
+        axs.ravel()
+        for f, fraction_id in enumerate(self.fraction_list):
+            fraction_x_maes, fraction_y_maes, layer_axis = [], [], []
+            beams_in_frac = [_ for _ in self.patient_record_df.loc[self.patient_record_df['FRACTION_ID'] == fraction_id]['BEAM_ID'].drop_duplicates()]
+            for b, beam_id in enumerate(beams_in_frac):
                 scope_record_df = self.patient_record_df.loc[(self.patient_record_df['BEAM_ID'] == beam_id) & (self.patient_record_df['FRACTION_ID'] == int(fraction_id))]  # slice currently needed portion from patient df
                 scope_tuning_df = self.patient_tuning_df.loc[(self.patient_tuning_df['BEAM_ID'] == beam_id) & (self.patient_tuning_df['FRACTION_ID'] == int(fraction_id))]
 
@@ -526,13 +535,14 @@ class MachineLog:
                         if beam.BeamName == beam_id or beam.BeamDescription == beam_id and float(beam.IonControlPointSequence[0].GantryAngle) == scope_record_df.loc[scope_record_df['BEAM_ID'] == beam_id]['GANTRY_ANGLE'].mean():
                             dcm_beam = ds.IonBeamSequence[i]
 
+                layer_x_maes, layer_y_maes = [], []
                 for layer_id in scope_record_df['LAYER_ID'].drop_duplicates():
                     x_positions, y_positions = [], []
                     x_tunings, y_tunings, = [], []
                     dcm_layer = dcm_beam.IonControlPointSequence[layer_id * 2]
                     plan_spotmap = dcm_layer.ScanSpotPositionMap
                     plan_x_positions, plan_y_positions = [], []
-                    layer_abs_x_diffs, layer_abs_y_diffs = [], []
+                    layer_x_diffs, layer_y_diffs = [], []
                     for i, coord in enumerate(plan_spotmap):
                         if i % 2 == 0:
                             plan_x_positions.append(coord)
@@ -559,21 +569,42 @@ class MachineLog:
 
                         min_dist = min(distances)
                         index = distances.index(min_dist)
-                        layer_abs_x_diffs.append(abs(x_differences[index])), layer_abs_y_diffs.append(abs(y_differences[index]))
+                        layer_x_diffs.append(abs(x_differences[index])), layer_y_diffs.append(abs(y_differences[index]))
                     
-                    total_beam_maes.append((np.mean(layer_abs_x_diffs) + np.mean(layer_abs_y_diffs)) / 2)
                     layer_axis.append(str(layer_id))
+                    layer_x_mae, layer_y_mae = np.mean(layer_x_diffs), np.mean(layer_y_diffs)
+                    layer_x_maes.append(layer_x_mae), layer_y_maes.append(layer_y_mae)
+                
+                fraction_x_maes.append(layer_x_maes), fraction_y_maes.append(layer_y_maes)
+            
+            print('Generating layer MAE evolution plot..')
+            colors = ['black', 'tab:blue', 'tab:orange', 'tab:red']
+            for b, beam_id in enumerate(beam_list):
+                axs[f].plot(fraction_x_maes[b], label=f'Beam-ID {beam_id}', linewidth=1.0, linestyle='-')#, color=colors[b])
+                axs[f].plot(fraction_y_maes[b], linewidth=1.0, linestyle='--')#, color=colors[b])
+
+            ax0.set_xlabel('Layer-ID', labelpad=2.0)
+            ax0.set_ylabel('Position Error [mm]')
+            axs[f].set_xticks([])
+            axs[f].grid('y')
+            axs[f].legend()
+
             break
         
-        print('Generating layer MAE evolution plot..')
-        plt.plot(total_beam_maes, label='layer mean absolute error')
-        plt.legend()
-        plt.show()
+        if not os.path.isdir(output_dir):
+            os.mkdir(output_dir)
+        while True:
+            try:
+                plt.savefig(f'{output_dir}/{self.patient_id}_position_MAE_evo.pdf')
+                break
+            except PermissionError:
+                input('  Permission denied, close target file and press ENTER.. ')
+        plt.clf()
 
 
 if __name__ == '__main__':
     log = MachineLog()
     # log.prepare_dataframe()
     # log.summarize_beams()
-    log.plot_beam_layers()    
+    # log.plot_beam_layers()    
     log.plot_spot_statistics()
