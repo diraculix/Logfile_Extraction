@@ -4,6 +4,7 @@ __project__ = 'Logfile-based dose calculation & beam statistics'
 __version__ = 2.0
 
 import os
+from re import A
 import sys
 import pydicom
 import pandas as pd
@@ -11,8 +12,10 @@ import numpy as np
 from scipy import stats
 from tkinter import Tk, filedialog
 from matplotlib import pyplot as plt
+from matplotlib.lines import Line2D
 
-output_dir = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\output'
+output_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\output'  # To BE CHANGED
+# output_dir = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\output'
 
 
 class MachineLog:
@@ -31,8 +34,8 @@ class MachineLog:
                 elif index == len(os.listdir(self.logfile_dir)) - 1:
                     valid_dir = True
         
-        # self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'  # TO BE CHANGED
-        self.df_destination = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\dataframes'
+        self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'  # TO BE CHANGED
+        # self.df_destination = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\dataframes'
         self.patient_record_df, self.patient_tuning_df = pd.DataFrame(), pd.DataFrame()  # initialize empty patient dataframes
         self.fraction_list = os.listdir(self.logfile_dir)
         self.num_fractions = len(self.fraction_list)
@@ -244,7 +247,7 @@ class MachineLog:
                                 if int(specif_file.split('_')[2].split('_')[0]) == layer_id:
                                     with open(specif_file, 'r') as specif_file:
                                         line = specif_file.readlines()[3]
-                                        ic_offset_x, ic_offset_y = float(line.split(',')[2]), float(line.split(',')[3])
+                                        ic_offset_x, ic_offset_y = float(line.split(',')[3]), float(line.split(',')[2])
                                         del line                
 
                             new_x_series = (pd.Series(tuning_file_df['Y_POSITION(mm)']) - ic_offset_x) * sad_x / (sad_x - ictoiso_x)  # coordinate system transform iba <-> raystation (x <-> y)
@@ -463,7 +466,6 @@ class MachineLog:
         ax0.set_xlabel('X [mm]', fontweight='bold', labelpad=10)
         ax0.set_ylabel('Y [mm]', fontweight='bold', labelpad=10)
         plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
-        # output_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\output'  # TO BE CHANGED
         if not os.path.isdir(output_dir):
             os.mkdir(output_dir)
         while True:
@@ -475,26 +477,26 @@ class MachineLog:
         plt.close()
         plt.clf()
         
-        print('Generating spot position histograms..')
-        fig, axs = plt.subplots(1, 2, figsize=(10, 5), dpi=150)
-        fig.subplots_adjust(hspace=0.5)
-        x_bins, y_bins = int(max(pos_x_delta) - min(pos_x_delta)) * 10, int(max(pos_y_delta) - min(pos_y_delta) * 10)
-        axs[0].hist(pos_x_delta, bins=x_bins, color='tab:blue', alpha=0.5, edgecolor='black', linewidth=1.0, label='$\Delta x$')
-        axs[0].hist(pos_y_delta, bins=y_bins, color='tab:orange', alpha=0.5, edgecolor='black', linewidth=1.0, label='$\Delta y$')
-        axs[0].set_ylabel('Counts')
-        axs[0].set_xlabel('Plan - Log-file [mm]')
-        axs[0].legend()
-        axs[1].hist(pos_abs_delta, bins=int(max(pos_abs_delta) - min(pos_abs_delta)) * 10, density=True, color='white', edgecolor='black', linewidth=1.0, label='Abs. distance')
-        axs[1].set_xlabel('$\Delta(x, y)$ [mm]')
-        axs[1].legend()
-        plt.suptitle('Spot Position Histogram Plan vs. Log-file', fontweight='bold', y=0.95)
-        while True:
-            try:
-                plt.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_pos_stats.pdf')
-                break
-            except PermissionError:
-                input('  Permission denied, close target file and press ENTER.. ')
-        plt.clf()
+        # print('Generating spot position histograms..')
+        # fig, axs = plt.subplots(1, 2, figsize=(10, 5), dpi=150)
+        # fig.subplots_adjust(hspace=0.5)
+        # x_bins, y_bins = int(max(pos_x_delta) - min(pos_x_delta)) * 10, int(max(pos_y_delta) - min(pos_y_delta) * 10)
+        # axs[0].hist(pos_x_delta, bins=x_bins, color='tab:blue', alpha=0.5, edgecolor='black', linewidth=1.0, label='$\Delta x$')
+        # axs[0].hist(pos_y_delta, bins=y_bins, color='tab:orange', alpha=0.5, edgecolor='black', linewidth=1.0, label='$\Delta y$')
+        # axs[0].set_ylabel('Counts')
+        # axs[0].set_xlabel('Plan - Log-file [mm]')
+        # axs[0].legend()
+        # axs[1].hist(pos_abs_delta, bins=int(max(pos_abs_delta) - min(pos_abs_delta)) * 10, density=True, color='white', edgecolor='black', linewidth=1.0, label='Abs. distance')
+        # axs[1].set_xlabel('$\Delta(x, y)$ [mm]')
+        # axs[1].legend()
+        # plt.suptitle('Spot Position Histogram Plan vs. Log-file', fontweight='bold', y=0.95)
+        # while True:
+        #     try:
+        #         plt.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_pos_stats.pdf')
+        #         break
+        #     except PermissionError:
+        #         input('  Permission denied, close target file and press ENTER.. ')
+        # plt.clf()
 
     def plot_spot_statistics(self):     # For one beam over all fractions:
                                         # derive histograms and MAE-evolution by comparing log vs. plan spot positions and MU's
@@ -515,16 +517,21 @@ class MachineLog:
                             patient_dicoms.append(os.path.join(path, fname))
 
         print('Collecting data..')
-        total_x_maes, total_y_maes = [], []  # mean absolute errors
-        fig, axs = plt.subplots(1, len(self.fraction_list), sharey=True, figsize=(100, 5), dpi=100)
+        fig, axs = plt.subplots(3, len(self.fraction_list), sharey='row', figsize=(100, 15), dpi=100)
+        # fig, axs = plt.subplots(3, 2, sharey='row', figsize=(10, 10), dpi=100)
         ax0 = fig.add_subplot(111, frameon=False)
         ax0.set_xticks([])
         ax0.set_yticks([])
+        axs[0, 0].set_ylabel('MAE [mm]')
+        axs[1, 0].set_ylabel('MAE [mm]')
+        axs[1, 0].set_xticks([])
+        axs[2, 0].set_ylabel('Counts')
         fig.subplots_adjust(wspace=0.0)
         axs.ravel()
         for f, fraction_id in enumerate(self.fraction_list):
             fraction_x_maes, fraction_y_maes, layer_axis = [], [], []
-            beams_in_frac = [_ for _ in self.patient_record_df.loc[self.patient_record_df['FRACTION_ID'] == fraction_id]['BEAM_ID'].drop_duplicates()]
+            total_x_diffs, total_y_diffs = [], []
+            beams_in_frac = self.patient_record_df.loc[self.patient_record_df['FRACTION_ID'] == int(fraction_id)]['BEAM_ID'].drop_duplicates()
             for b, beam_id in enumerate(beams_in_frac):
                 scope_record_df = self.patient_record_df.loc[(self.patient_record_df['BEAM_ID'] == beam_id) & (self.patient_record_df['FRACTION_ID'] == int(fraction_id))]  # slice currently needed portion from patient df
                 scope_tuning_df = self.patient_tuning_df.loc[(self.patient_tuning_df['BEAM_ID'] == beam_id) & (self.patient_tuning_df['FRACTION_ID'] == int(fraction_id))]
@@ -569,6 +576,7 @@ class MachineLog:
 
                         min_dist = min(distances)
                         index = distances.index(min_dist)
+                        total_x_diffs.append(x_differences[index]), total_y_diffs.append(y_differences[index])
                         layer_x_diffs.append(abs(x_differences[index])), layer_y_diffs.append(abs(y_differences[index]))
                     
                     layer_axis.append(str(layer_id))
@@ -576,20 +584,38 @@ class MachineLog:
                     layer_x_maes.append(layer_x_mae), layer_y_maes.append(layer_y_mae)
                 
                 fraction_x_maes.append(layer_x_maes), fraction_y_maes.append(layer_y_maes)
-            
-            print('Generating layer MAE evolution plot..')
+
+            fraction_x_beam_maes = [np.mean(xerr_array) for xerr_array in fraction_x_maes]
+            fraction_y_beam_maes = [np.mean(yerr_array) for yerr_array in fraction_y_maes]
+
+            print(f'Generating MAE evolution plot {str(f + 1).zfill(2)}/{len(self.fraction_list)}', end='\r')
             colors = ['black', 'tab:blue', 'tab:orange', 'tab:red']
-            for b, beam_id in enumerate(beam_list):
-                axs[f].plot(fraction_x_maes[b], label=f'Beam-ID {beam_id}', linewidth=1.0, linestyle='-')#, color=colors[b])
-                axs[f].plot(fraction_y_maes[b], linewidth=1.0, linestyle='--')#, color=colors[b])
-
-            ax0.set_xlabel('Layer-ID', labelpad=2.0)
-            ax0.set_ylabel('Position Error [mm]')
-            axs[f].set_xticks([])
-            axs[f].grid('y')
-            axs[f].legend()
-
-            break
+            axs[1, f].set_xticklabels([])
+            for b, beam_id in enumerate(beams_in_frac):
+                axs[0, f].plot(fraction_x_maes[b], label=f'{beam_id} - $x$', linewidth=1.0, linestyle='-', color=colors[b])
+                axs[0, f].plot(fraction_y_maes[b], label=f'{beam_id} - $y$', linewidth=1.0, linestyle='--', color=colors[b])
+                bp1 = axs[1, f].boxplot(fraction_x_maes[b], positions=[b + 1], widths=0.7)
+                plt.setp(bp1['medians'], color=colors[b], linestyle='-')
+                axs[1, f].axvline(len(beams_in_frac) + 1, color='black', lw=1.0, ls='--')
+                bp2 = axs[1, f].boxplot(fraction_y_maes[b], positions=[b + 2 + len(beams_in_frac)], widths=0.7)
+                plt.setp(bp2['medians'], color=colors[b], linestyle='--')
+            axs[0, f].grid(axis='y')
+            axs[0, f].set_xlabel('Layer-ID')
+            axs[0, f].legend(loc='upper right')
+            axs[0, f].set_title(f'{fraction_id}')
+            axs[1, f].set_xlabel('Beams')
+            axs[1, f].grid(axis='y')
+            axs[1, f].set_xticks([])
+            bin_width = 0.1  # mm
+            x_bins = np.arange(min(total_x_diffs), max(total_x_diffs) + bin_width, bin_width)
+            y_bins = np.arange(min(total_y_diffs), max(total_y_diffs) + bin_width, bin_width)
+            axs[2, f].hist(total_x_diffs, bins=x_bins, color='tab:green', alpha=0.5, edgecolor='black', linewidth=1.0, label='$\Delta x$')
+            axs[2, f].hist(total_y_diffs, bins=y_bins, color='tab:purple', alpha=0.5, edgecolor='black', linewidth=1.0, label='$\Delta y$')
+            axs[2, f].axvline(np.mean(total_x_diffs), color='tab:green', alpha=0.5, lw=1.0, ls='--', label='mean')
+            axs[2, f].axvline(np.mean(total_y_diffs), color='tab:purple', alpha=0.5, lw=1.0, ls='--')
+            axs[2, f].set_xlim(-1.75, 1.75)
+            axs[2, f].set_xlabel('$\Delta$(Plan, Log) [mm]')
+            axs[2, f].legend(loc='upper right')
         
         if not os.path.isdir(output_dir):
             os.mkdir(output_dir)
