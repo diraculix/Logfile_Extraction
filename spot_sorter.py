@@ -21,11 +21,20 @@ def spot_sorter(self, fraction_id, beam_id):
                 ds = pydicom.read_file(os.path.join(path, fname))
                 for i, beam in enumerate(ds.IonBeamSequence):
                     if (beam.BeamName == beam_id or beam.BeamDescription == beam_id) and float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:
-                        beam_dcm = ds
+                        beam_dcm = beam
                         found = True
                         
-    if not found:
+    while not found:
         print(f'  /!\ Auto-location failed for beam-ID {beam_id} in fraction-ID {fraction_id}, select plan DICOM..')
-        pydicom.read(filedialog.askopenfilename(initialdir=os.path.join(self.logfile_dir, '..')))
+        target = filedialog.askopenfilename(initialdir=os.path.join(self.logfile_dir, '..'))
+        if target == '':
+            print('  /x\ Process cancelled by user')
+            return None
+            
+        ds = pydicom.read(target)
+        for beam in ds.IonBeamSequence:
+            if (beam.BeamName == beam_id or beam.BeamDescription == beam_id) and float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:
+                beam_dcm = beam
+                found = True
     
     return beam_dcm
