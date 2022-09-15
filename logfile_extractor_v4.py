@@ -1,7 +1,7 @@
 '''Encoding: UTF-8'''
 __author__ = 'Lukas C. Wolter, OncoRay ZIK, Dresden, Germany'
 __project__ = 'Logfile-based dose calculation & beam statistics'
-__version__ = 4.0
+__version__ = 5.0
 
 import os
 import sys
@@ -70,7 +70,6 @@ class MachineLog:
                             if line.__contains__('PatientId'):
                                 self.patient_id = int(line.split('>')[1].split('<')[0])
         
-        self.patient_record_df, self.patient_tuning_df = pd.DataFrame(), pd.DataFrame()
         record_df_exists, tuning_df_exists = False, False
         for dirpath, dirnames, filenames in os.walk(os.path.join(self.df_destination, '..')):  # sweep over root directory, read existing dataframes
             for fname in filenames:
@@ -87,20 +86,13 @@ class MachineLog:
         
         if not record_df_exists or not tuning_df_exists:
             print(f'''\nUnable to locate patient record/tuning dataframes for patient-ID {self.patient_id}. Calling prepare_dataframe()..''')
+            self.patient_record_df, self.patient_tuning_df = pd.DataFrame(), pd.DataFrame()
             self.prepare_dataframe()
         
         os.chdir(self.logfile_dir)
-        
-
-    def summarize_beams(self):
-        print(f'Total {self.num_fractions} fractions in {self.logfile_dir}\n')
-        for index, fraction in enumerate(self.fraction_list):
-            print(f'[{index + 1}] - {fraction}')
-            for beam in self.beam_list[index]:
-                print('\t', beam)
     
 
-    def prepare_dataframe(self, sparse=True):  # disabling sparse will keep every 250us entry, enables single spot averaging, but results in larger dataframe
+    def prepare_dataframe(self):  # disabling sparse will keep every 250us entry, results in larger dataframes (deprecated)
         if not self.patient_record_df.empty and not self.patient_tuning_df.empty:  # function call obsolete if record/tuning dataframes exist, re-init possible
             print('Already read existing patient record/tuning dataframes:')
             print(f'  {self.record_df_name}\n  {self.tuning_df_name}\n')
@@ -111,7 +103,7 @@ class MachineLog:
         print(f'Initializing dataframe for patient-ID {self.patient_id}..')
         self.patient_record_df, self.patient_tuning_df = pd.DataFrame(), pd.DataFrame()  # overwrite stored df's
         for fraction_no, fraction_id in enumerate(self.fraction_list):
-            for beam_no, beam_id in enumerate(self.beam_list[fraction_no]):
+            for beam_id in self.beam_list[fraction_no]:
                 if (fraction_id, beam_id) in self.missing_beams:
                     print(f'  /!\ Skipping missing beam {beam_id} in fraction {fraction_id}')
                     continue
@@ -119,7 +111,11 @@ class MachineLog:
                 current_beam_path = os.path.join(self.logfile_dir, fraction_id, beam_id)
                 os.chdir(current_beam_path)
                 while len(os.listdir('.')) <= 3:
-                    os.chdir(os.listdir('.')[0])
+                    try:
+                        os.chdir(os.listdir('.')[0])  # navigate through nested logfile dir structure (possibly risky)
+                    except OSError:
+                        print(f'  /!\ No directory to enter in {os.getcwd()}, staying here..')
+                        break
 
                 map_records, tunings, record_specifs, tuning_specifs = [], [], [], []  # get file lists
                 for file in os.listdir('.'):
@@ -137,7 +133,7 @@ class MachineLog:
                         tuning_specifs.append(file)
                     
                 if len(map_records) == 0 or len(tunings) == 0:
-                    raise LookupError('No logfiles found!') 
+                    raise LookupError('  /x\ No logfiles found!') 
 
                 num_layers = max([int(fname.split('_')[2].split('_')[0]) + 1 for fname in map_records])
 
@@ -165,8 +161,8 @@ class MachineLog:
                         elif line.__contains__('Nozzle WET polynomial'):
                             nozzle_wet_poly = [float(x) for x in line.split(';')[-1].split(',')]
                 
-                    ref_pressure, ref_temperature = 1013., 293.
-                    correction_factor = (1 / chamber_correction) * (ref_pressure * temperature) / (ref_temperature * pressure)  # classic chamber-specific * (p_0*T) / (T_0*p)
+                    ref_pressure, ref_temperature = 1013., 293.  # [hPa, K] standard reference, can also be read from same file
+                    correction_factor = (1 / chamber_correction) * (ref_pressure * temperature) / (ref_temperature * pressure)  # why inverse chamber correction?
                     beam_config.close()
                 
                 # Source: IBA Particle Therapy 08/22 (Jozef Bokor), universal nozzle WET polynomial coefficients
@@ -186,14 +182,14 @@ class MachineLog:
                             try:
                                 record_file_df['TIME'] = pd.to_datetime(record_file_df['TIME'])     # datetime index --> chronological order
                                 record_file_df.index = record_file_df['TIME']                              
-                                charge_col = pd.Series(record_file_df['DOSE_PRIM(C)'])              # ion dose [C], will be translated to MU later
+                                charge_col = pd.Series(record_file_df['DOSE_PRIM(C)'])              # ion dose [C], to be converted in MU
                                 record_file_df = record_file_df.loc[:, :'Y_POSITION(mm)']           # slice dataframe, drop redundant columns
                                 record_file_df['DOSE_PRIM(C)'] = charge_col
                                 record_file_df.drop(columns=['TIME'], inplace=True)
                                 record_file_df.drop(record_file_df[record_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)
                                 record_file_df = record_file_df[record_file_df.groupby('SUBMAP_NUMBER')['SUBMAP_NUMBER'].transform('count') > 1]  # drop all rows without plan-relevant data
                                 record_file_df.drop(columns=['X_WIDTH(mm)', 'Y_WIDTH(mm)'], inplace=True)  # not needed for plan, uniform spot sizes in beam model
-                            except:  # in case no usable information left in log-file, skip these occasions (very unlikely, but possible if multiple parts)
+                            except:  # unlikely event of unusable information in log-file (possible if split into parts)
                                 no_exceptions = False
                                 layer_exceptions.append(layer_id)
                                 continue
@@ -206,19 +202,15 @@ class MachineLog:
                                 record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['SPOT_ID']] = current_spot_id  # assign new column
                                 spot_drill_time = len(record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap]) * 0.25  # in [ms]
                                 record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DRILL_TIME(ms)']] = spot_drill_time  # assign new column
-
-                                if sparse:
-                                    accumulated_charge = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DOSE_PRIM(C)']].abs().sum().mean()
-                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['ACC_CHARGE(C)']] = accumulated_charge
-                                                                                                                                # accumulate released charge and assign to new column
+                                accumulated_charge = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DOSE_PRIM(C)']].abs().sum().mean()  # accumulate charge released per spot
+                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['ACC_CHARGE(C)']] = accumulated_charge  # assign new column
 
                                 current_spot_submap = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] > current_spot_submap]['SUBMAP_NUMBER'].min()
                                 current_spot_id += 1
 
-                            if sparse:
-                                record_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
-                                record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entries for each spot
-                                record_file_df = record_file_df.loc[(record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0)]  # drop redundant rows
+                            record_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
+                            record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entries for each spot (most accurate)
+                            record_file_df = record_file_df.loc[(record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0)]  # drop redundant rows
                             
                             for specif_file in record_specifs:  # draw machine parameters from *map_specif*.csv
                                 if int(specif_file.split('_')[2].split('_')[0]) == layer_id:
@@ -231,8 +223,7 @@ class MachineLog:
                             # calculate energy at isocenter from range
                             nozzle_wet = np.polyval(nozzle_wet_poly, range_at_degrader)  # [mm]
                             range_at_iso = range_at_degrader - nozzle_wet
-                            layer_energy = np.exp(np.polyval(iba_gtr2_poly, np.log(range_at_iso)))  # (MeV)
-
+                            layer_energy = np.exp(np.polyval(iba_gtr2_poly, np.log(range_at_iso)))  # [MeV]
                             record_file_df['LAYER_ENERGY(MeV)'] = layer_energy
                             
                             # coordinate system transform iba <-> raystation (x <-> y)
@@ -241,13 +232,9 @@ class MachineLog:
                             record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)'] = new_x_series, new_y_series
                             del new_x_series, new_y_series
                         
-                            if sparse:
-                                record_file_df['MU'] = record_file_df['ACC_CHARGE(C)'] * correction_factor / charge_per_mu # calculate accumulated MUs and assign new column 'MU'
-                                record_file_df.drop(columns=['ACC_CHARGE(C)'], inplace=True)
-                            else:
-                                record_file_df['MU'] = abs(record_file_df['DOSE_PRIM(C)'] * correction_factor / charge_per_mu)  # calculate single MUs and assign new column 'MU'
-                                record_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
-
+                            # charge to MU conversion using correction factor
+                            record_file_df['MU'] = record_file_df['ACC_CHARGE(C)'] * correction_factor / charge_per_mu
+                            record_file_df.drop(columns=['ACC_CHARGE(C)'], inplace=True)
                             record_file_df.reindex()  # make sure modified layer df is consistent with indexing
                             to_do_layers.append(record_file_df)
                 
@@ -286,18 +273,15 @@ class MachineLog:
                                 tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['SPOT_ID']] = current_spot_id
                                 spot_drill_time = len(tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap]) * 0.25
                                 tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DRILL_TIME(ms)']] = spot_drill_time
-
-                                if sparse:
-                                    accumulated_charge = tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DOSE_PRIM(C)']].abs().sum().mean()
-                                    tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['ACC_CHARGE(C)']] = accumulated_charge
+                                accumulated_charge = tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DOSE_PRIM(C)']].abs().sum().mean()
+                                tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['ACC_CHARGE(C)']] = accumulated_charge
 
                                 current_spot_submap = tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] > current_spot_submap]['SUBMAP_NUMBER'].min()
                                 current_spot_id += 1
                             
-                            if sparse:
-                                tuning_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
-                                tuning_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)
-                                tuning_file_df = tuning_file_df.loc[(tuning_file_df['X_POSITION(mm)'] != -10000.0) & (tuning_file_df['Y_POSITION(mm)'] != -10000.0)]
+                            tuning_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
+                            tuning_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)
+                            tuning_file_df = tuning_file_df.loc[(tuning_file_df['X_POSITION(mm)'] != -10000.0) & (tuning_file_df['Y_POSITION(mm)'] != -10000.0)]
                             
                             for specif_file in tuning_specifs:
                                 if int(specif_file.split('_')[2].split('_')[0]) == layer_id:
@@ -310,7 +294,6 @@ class MachineLog:
                             nozzle_wet = np.polyval(nozzle_wet_poly, range_at_degrader)  # [mm]
                             range_at_iso = range_at_degrader - nozzle_wet
                             layer_energy = np.exp(np.polyval(iba_gtr2_poly, np.log(range_at_iso)))  # (MeV)
-
                             tuning_file_df['LAYER_ENERGY(MeV)'] = layer_energy
 
                             new_x_series = (pd.Series(tuning_file_df['Y_POSITION(mm)']) - ic_offset_x) * sad_x / (sad_x - ictoiso_x)  # coordinate system transform iba <-> raystation (x <-> y)
@@ -318,12 +301,8 @@ class MachineLog:
                             tuning_file_df['X_POSITION(mm)'], tuning_file_df['Y_POSITION(mm)'] = new_x_series, new_y_series
                             del new_x_series, new_y_series            
                             
-                            if sparse:
-                                tuning_file_df['MU'] = tuning_file_df['ACC_CHARGE(C)'] * correction_factor / charge_per_mu
-                                tuning_file_df.drop(columns=['ACC_CHARGE(C)'], inplace=True)
-                            else:
-                                tuning_file_df['MU'] = abs(tuning_file_df['DOSE_PRIM(C)'] * correction_factor / charge_per_mu)
-                                tuning_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
+                            tuning_file_df['MU'] = tuning_file_df['ACC_CHARGE(C)'] * correction_factor / charge_per_mu
+                            tuning_file_df.drop(columns=['ACC_CHARGE(C)'], inplace=True)
 
                             tuning_file_df.reindex()
                             to_do_tunings.append(tuning_file_df)
@@ -335,7 +314,7 @@ class MachineLog:
                         if j > 0:
                             to_do_layers[j]['SPOT_ID'] += (to_do_layers[j - 1]['SPOT_ID'].max() + 1)
                     
-                    if len(to_do_layers) > 0:  # can be zero, if only single spot is omitted by high-weighted tuning
+                    if len(to_do_layers) > 0:  # can be zero, if only one spot in layer and omitted by high-weighted tuning
                         layer_df = pd.concat(to_do_layers)  # concatenate layers, assign additional columns
                         layer_df['LAYER_ID'] = layer_id
                         layer_df['TOTAL_LAYERS'] = num_layers
@@ -387,10 +366,11 @@ class MachineLog:
                     
                     no_exceptions = True
 
-                os.chdir(self.logfile_dir) 
+                os.chdir(self.logfile_dir)
 
             print(f'  ..Fraction {str(fraction_no + 1).zfill(2)}/{str(self.num_fractions).zfill(2)} complete..') 
 
+        # write out as .csv
         os.chdir(self.df_destination)
         print(f'''  ..Writing dataframe to '{self.df_destination}' as .CSV.. ''')
         while True:   
@@ -402,15 +382,37 @@ class MachineLog:
                 input('  Permission denied, close target file and press ENTER.. ')
         self.patient_record_df = self.patient_record_df.astype(dtype={'BEAM_ID':str, 'FRACTION_ID':str})
         self.patient_tuning_df = self.patient_tuning_df.astype(dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+        self.record_df_name = f'patient_{self.patient_id}_records_data.csv'
+        self.tuning_df_name = f'patient_{self.patient_id}_tuning_data.csv'
         print('Complete')
     
+
+    def dicom_finder(self, fraction_id, beam_id):
+        to_be_sorted = self.patient_record_df.loc[(self.patient_record_df['FRACTION_ID'] == fraction_id) & (self.patient_record_df['BEAM_ID'] == beam_id)]
+        gtr_angle = to_be_sorted['GANTRY_ANGLE'].iloc[0]
+        n_layers = to_be_sorted['TOTAL_LAYERS'].iloc[0]
+        found = False
+
+        print('\nTrying to auto-locate patient plan dicoms..')  # read RT plan dicom via filedialog
+        for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
+            for fname in filenames:
+                if fname.__contains__('RP') and fname.endswith('.dcm'):
+                    ds = pydicom.read_file(os.path.join(path, fname))
+                    for i, beam in enumerate(ds.IonBeamSequence):
+                        if (beam.BeamName == beam_id or beam.BeamDescription == beam_id) and float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:
+                            beam_dcm = beam
+                            found = True
+                            
+        if not found:
+            print(f'  /!\ Auto-location failed for beam-ID {beam_id} in fraction-ID {fraction_id}, select plan DICOM..')
+            pydicom.read(filedialog.askopenfilename(initialdir=os.path.join(self.logfile_dir, '..')))
+        
+        return beam_dcm
+
 
     def plot_beam_layers(self):     # For all layers in one beam, averaged over all fractions:
                                     # derive scatter plot of (x,y)-positions from logfile, 
                                     # compare vs. planned positions extracted from RP*.dcm
-        if self.patient_record_df.empty or self.patient_tuning_df.empty:
-            print(f'''\nUnable to locate patient record/tuning dataframes for patient-ID {self.patient_id}. Calling MachineLog.prepare_dataframe()..''')                
-            self.prepare_dataframe()
 
         beam_list = self.patient_record_df['BEAM_ID'].drop_duplicates()
         indices = beam_list.index.to_list()
@@ -443,42 +445,44 @@ class MachineLog:
         scope_tuning_df = self.patient_tuning_df.loc[self.patient_tuning_df['BEAM_ID'] == beam_id]
         print('Selected beam is:', beam_id)
 
-        print('\nTrying to auto-locate plan .dcm file..')  # read RT plan dicom via filedialog
-        plan_dirs = []
-        for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
-            for fname in filenames:
-                if fname.__contains__('RP') and fname.endswith('.dcm') and not fname.__contains__('log'):
-                    ds = pydicom.read_file(os.path.join(path, fname))
-                    for i, beam in enumerate(ds.IonBeamSequence):
-                        if (beam.BeamName == beam_id or beam.BeamDescription == beam_id) and float(beam.IonControlPointSequence[0].GantryAngle) == self.patient_record_df.loc[self.patient_record_df['BEAM_ID'] == beam_id]['GANTRY_ANGLE'].mean():
-                            if 'dcm_beam_id' and 'dcm_target' in locals():
-                                prompt = input(f'''  <!> Conflict: file '{fname}' also contains matching beam-ID {ds.IonBeamSequence[i].BeamName} ({ds.IonBeamSequence[i].BeamDescription}), keep previous[k] or replace[r]? ''')
-                                if prompt == 'r':
-                                    continue
-                                else:
-                                    print('  Scanning for conflicts.. ', end='\r')
-                                    break
+        # print('\nTrying to auto-locate plan .dcm file..')  # read RT plan dicom via filedialog
+        # plan_dirs = []
+        # for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
+        #     for fname in filenames:
+        #         if fname.__contains__('RP') and fname.endswith('.dcm') and not fname.__contains__('log'):
+        #             ds = pydicom.read_file(os.path.join(path, fname))
+        #             for i, beam in enumerate(ds.IonBeamSequence):
+        #                 if (beam.BeamName == beam_id or beam.BeamDescription == beam_id) and float(beam.IonControlPointSequence[0].GantryAngle) == self.patient_record_df.loc[self.patient_record_df['BEAM_ID'] == beam_id]['GANTRY_ANGLE'].mean():
+        #                     if 'dcm_beam_id' and 'dcm_target' in locals():
+        #                         prompt = input(f'''  <!> Conflict: file '{fname}' also contains matching beam-ID {ds.IonBeamSequence[i].BeamName} ({ds.IonBeamSequence[i].BeamDescription}), keep previous[k] or replace[r]? ''')
+        #                         if prompt == 'r':
+        #                             continue
+        #                         else:
+        #                             print('  Scanning for conflicts.. ', end='\r')
+        #                             break
                             
-                            plan_dirs.append(path)
-                            dcm_target, dcm_beam_id = ds, i  # locate beam according to previous selection
-                            print(f'''  Detected matching plan '{fname}' for beam-ID {beam_id} with patient-ID {ds.PatientID}''')
-                            print('  Scanning for conflicts.. ', end='\r')
+        #                     plan_dirs.append(path)
+        #                     dcm_target, dcm_beam_id = ds, i  # locate beam according to previous selection
+        #                     print(f'''  Detected matching plan '{fname}' for beam-ID {beam_id} with patient-ID {ds.PatientID}''')
+        #                     print('  Scanning for conflicts.. ', end='\r')
         
-        while True:
-            try:
-                dcm_beam = dcm_target.IonBeamSequence[dcm_beam_id]
-                print('  Scanning for conflicts.. OK')
-                break
-            except UnboundLocalError:
-                print('Failed to auto-locate plan .dcm file. Please choose file manually..')
-                root = Tk()
-                try:
-                    dcm_target = pydicom.read_file(filedialog.askopenfilename())
-                except FileNotFoundError:
-                    print('ERROR: File not found or none selected, try again..')
-                root.destroy()
+        # while True:
+        #     try:
+        #         dcm_beam = dcm_target.IonBeamSequence[dcm_beam_id]
+        #         print('  Scanning for conflicts.. OK')
+        #         break
+        #     except UnboundLocalError:
+        #         print('Failed to auto-locate plan .dcm file. Please choose file manually..')
+        #         root = Tk()
+        #         try:
+        #             dcm_target = pydicom.read_file(filedialog.askopenfilename())
+        #         except FileNotFoundError:
+        #             print('ERROR: File not found or none selected, try again..')
+        #         root.destroy()
         
-        del dcm_target, dcm_beam_id
+        # del dcm_target, dcm_beam_id
+        dcm_beam = self.dicom_finder(fraction_id=scope_record_df['FRACTION_ID'].iloc[0], beam_id=beam_id)
+
         print('\nGenerating layer plot..')
         fig, axs = plt.subplots(6, 8, sharex=True, sharey=True, figsize=(24, 24 * 6/8), dpi=150)  # initiate matrix-like layer plot
         ax0 = fig.add_subplot(111, frameon=False)
@@ -1285,7 +1289,7 @@ class MachineLog:
                 
 
 if __name__ == '__main__':
-    log = MachineLog()
+    # log = MachineLog()
     # log.prepare_dataframe()
     # log.plot_beam_layers()    
     # log.plot_spot_statistics()
@@ -1293,9 +1297,11 @@ if __name__ == '__main__':
     # log.delta_dependencies()
     # log.plan_creator(fraction='last', mode='all')
     # log.beam_timings()
+    pass
+
 else:
     print('>> Module', __name__, 'loaded')
 
-#%%
-# from logfile_extractor_v4 import MachineLog
-# log = MachineLog()
+# %%
+from logfile_extractor_v4 import MachineLog
+log = MachineLog()
