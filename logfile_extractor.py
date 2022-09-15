@@ -445,42 +445,6 @@ class MachineLog:
         scope_tuning_df = self.patient_tuning_df.loc[self.patient_tuning_df['BEAM_ID'] == beam_id]
         print('Selected beam is:', beam_id)
 
-        # print('\nTrying to auto-locate plan .dcm file..')  # read RT plan dicom via filedialog
-        # plan_dirs = []
-        # for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
-        #     for fname in filenames:
-        #         if fname.__contains__('RP') and fname.endswith('.dcm') and not fname.__contains__('log'):
-        #             ds = pydicom.read_file(os.path.join(path, fname))
-        #             for i, beam in enumerate(ds.IonBeamSequence):
-        #                 if (beam.BeamName == beam_id or beam.BeamDescription == beam_id) and float(beam.IonControlPointSequence[0].GantryAngle) == self.patient_record_df.loc[self.patient_record_df['BEAM_ID'] == beam_id]['GANTRY_ANGLE'].mean():
-        #                     if 'dcm_beam_id' and 'dcm_target' in locals():
-        #                         prompt = input(f'''  <!> Conflict: file '{fname}' also contains matching beam-ID {ds.IonBeamSequence[i].BeamName} ({ds.IonBeamSequence[i].BeamDescription}), keep previous[k] or replace[r]? ''')
-        #                         if prompt == 'r':
-        #                             continue
-        #                         else:
-        #                             print('  Scanning for conflicts.. ', end='\r')
-        #                             break
-                            
-        #                     plan_dirs.append(path)
-        #                     dcm_target, dcm_beam_id = ds, i  # locate beam according to previous selection
-        #                     print(f'''  Detected matching plan '{fname}' for beam-ID {beam_id} with patient-ID {ds.PatientID}''')
-        #                     print('  Scanning for conflicts.. ', end='\r')
-        
-        # while True:
-        #     try:
-        #         dcm_beam = dcm_target.IonBeamSequence[dcm_beam_id]
-        #         print('  Scanning for conflicts.. OK')
-        #         break
-        #     except UnboundLocalError:
-        #         print('Failed to auto-locate plan .dcm file. Please choose file manually..')
-        #         root = Tk()
-        #         try:
-        #             dcm_target = pydicom.read_file(filedialog.askopenfilename())
-        #         except FileNotFoundError:
-        #             print('ERROR: File not found or none selected, try again..')
-        #         root.destroy()
-        
-        # del dcm_target, dcm_beam_id
         dcm_beam = self.dicom_finder(fraction_id=scope_record_df['FRACTION_ID'].iloc[0], beam_id=beam_id)
 
         print('\nGenerating layer plot..')
@@ -571,9 +535,6 @@ class MachineLog:
 
     def plot_spot_statistics(self):     # For one beam over all fractions:
                                         # derive histograms and MAE-evolution by comparing log vs. plan spot positions and MU's
-        if self.patient_record_df.empty or self.patient_tuning_df.empty:
-            print(f'''\nUnable to locate patient record/tuning dataframes for patient-ID {self.patient_id}. Calling MachineLog.prepare_dataframe()..''')                
-            self.prepare_dataframe()
 
         beam_list = [str(i) for i in self.patient_record_df['BEAM_ID'].drop_duplicates()]
 
@@ -706,10 +667,6 @@ class MachineLog:
 
 
     def prepare_deltaframe(self):
-        if self.patient_record_df.empty or self.patient_tuning_df.empty:
-            print(f'''\nUnable to locate patient record/tuning dataframes for patient-ID {self.patient_id}, calling MachineLog.prepare_dataframe()..''')                
-            self.prepare_dataframe()
-        
         for df_file in os.listdir(self.df_destination):
             if df_file.__contains__('delta') and df_file.__contains__(str(self.patient_id)) and df_file.endswith('.csv'):
                 re_init = input(f'''Found existing patient deltaframe '{df_file}', re-initialize [y/n]? ''')
@@ -760,7 +717,7 @@ class MachineLog:
         print(f'{valid_beams}/{len(beam_list)} recorded beams found in patient dicoms')
     	
         unique_index = 0
-        for fx_id in self.patient_record_df['FRACTION_ID'].drop_duplicates():
+        for f, fx_id in enumerate(self.patient_record_df['FRACTION_ID'].drop_duplicates()):
             for beam_id in beam_list:
                 for i in range(len(beam_dcm_dict[beam_id])):
                     try:
@@ -771,6 +728,7 @@ class MachineLog:
                                 break                        
                         
                         beam_df = self.patient_record_df.loc[(self.patient_record_df['BEAM_ID'] == beam_id) & (self.patient_record_df['FRACTION_ID'] == fx_id)]
+                        num_layers = beam_df['TOTAL_LAYERS'].iloc[0]
                         for layer_id in beam_df['LAYER_ID'].drop_duplicates():
                             try:
                                 plan_layer = plan_beam.IonControlPointSequence[layer_id * 2]
@@ -860,10 +818,17 @@ class MachineLog:
                                 self.patient_delta_df = pd.concat([self.patient_delta_df, fx_delta_df], sort=True)
                             
                             unique_index += len(log_xy_sorted)
+
+                            if layer_id == (num_layers - 1):  # progress visualization
+                                print('  ', '[' + (layer_id + 1) * '#' + (num_layers - layer_id - 1) * '-' + ']', end=f' Beam {beam_id} complete\n')
+                            else:
+                                print('  ', '[' + (layer_id + 1) * '#' + (num_layers - layer_id - 1) * '-' + ']', end=f' Layer {str(layer_id + 1).zfill(2)}/{str(num_layers).zfill(2)}\r')
                     
                     except:
                         continue
-                        
+
+            print(f'  ..Fraction {f + 1}/{self.num_fractions} complete..')
+
         # write deltaframe
         os.chdir(self.df_destination)
         print(f'''  ..Writing deltaframe to '{self.df_destination}' as .CSV.. ''')
@@ -878,9 +843,6 @@ class MachineLog:
 
 
     def delta_dependencies(self):
-        if self.patient_record_df.empty or self.patient_tuning_df.empty:
-            print(f'''\nUnable to locate patient record/tuning dataframes for patient-ID {self.patient_id}, calling prepare_dataframe()..''')                
-            self.prepare_dataframe()
         for file in os.listdir(self.df_destination):
             if file.__contains__(str(self.patient_id)) and file.__contains__('delta') and file.endswith('.csv'):
                 print(f'''Found patient deltaframe '{file}', reading in..''')
@@ -1075,7 +1037,7 @@ class MachineLog:
             beam_tuning_df = self.patient_tuning_df.loc[(self.patient_tuning_df['BEAM_ID'] == beam_id) & (self.patient_tuning_df['FRACTION_ID'] == fx_id)]
             if beam_df.empty or beam_tuning_df.empty:
                 print('empty')
-                global_drills.append(0.0), global_spot_switches.append(0.0), global_energy_switches.append(0.0), global_interlocks.append(0.0)
+                global_drills.append(0.0), global_spot_switches.append(0.0), global_energy_switches.append(0.0)
                 continue
 
             total_drill_time = (beam_df['DRILL_TIME(ms)'].sum() + beam_tuning_df['DRILL_TIME(ms)'].sum()) / 1000
@@ -1107,12 +1069,12 @@ class MachineLog:
         global_interlocks = []
         for fx, spot_switch in enumerate(global_spot_switches):
             interlock_time = 0.0
-            if spot_switch > np.median(global_spot_switches) + 2:
+            if spot_switch > np.median(global_spot_switches) + 5:
                 this_interlock = spot_switch - np.median(global_spot_switches)
                 interlock_time += this_interlock
                 global_spot_switches[fx] = global_spot_switches[fx] - this_interlock
                 print(f'  /!\ Possible spot switch interlock detected in fraction #{fx + 1}')
-            if global_energy_switches[fx] > np.median(global_energy_switches) + 2:
+            if global_energy_switches[fx] > np.median(global_energy_switches) + 5:
                 this_interlock = global_energy_switches[fx] - np.median(global_energy_switches)
                 interlock_time += this_interlock
                 global_energy_switches[fx] = global_energy_switches[fx] - this_interlock
