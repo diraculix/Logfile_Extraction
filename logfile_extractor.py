@@ -12,8 +12,10 @@ from tkinter import Tk, filedialog
 from matplotlib import pyplot as plt
 
 
-# output_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\output'  # TO BE CHANGED
-output_dir = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\output'
+try:
+    output_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\output'  # TO BE CHANGED
+except:
+    output_dir = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\output'
 
 
 class MachineLog:
@@ -32,8 +34,11 @@ class MachineLog:
                 elif index == len(os.listdir(self.logfile_dir)) - 1:
                     valid_dir = True
         
-        # self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'  # TO BE CHANGED
-        self.df_destination = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\dataframes'
+        try:
+            self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'  # TO BE CHANGED
+        except:
+            self.df_destination = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\dataframes'
+            
         self.fraction_list = os.listdir(self.logfile_dir)
         self.num_fractions = len(self.fraction_list)
         self.beam_list = []
