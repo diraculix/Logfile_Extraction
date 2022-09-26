@@ -24,7 +24,7 @@ class MachineLog:
             self.logfile_dir = filedialog.askdirectory(title='Select logfile root directory')  # open logfile root directory, which contains one dir per fraction
             root.destroy()
             if self.logfile_dir == '':
-                sys.exit('No directory selected, exiting..')
+                sys.exit('/x\ No directory selected, exiting..')
             for index, element in enumerate(os.listdir(self.logfile_dir)):
                 if not os.path.isdir(os.path.join(self.logfile_dir, element)):
                     print(f'''Chosen path '{self.logfile_dir}' may only contain directories (one per fraction). Please retry..''')
@@ -172,7 +172,7 @@ class MachineLog:
                 for layer_id in range(num_layers):
                     to_do_layers, to_do_tunings = [], []
                     no_exceptions = True
-                    for record_file in map_records:  # actual (processed) log-file analysis
+                    for record_file in map_records:  # actual (processed) log-file extraction
                         if int(record_file.split('_')[2].split('_')[0]) == layer_id:
                             try:
                                 record_file_df = pd.read_csv(record_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
@@ -372,45 +372,122 @@ class MachineLog:
 
         # write out as .csv
         os.chdir(self.df_destination)
+        self.record_df_name = f'patient_{self.patient_id}_records_data.csv'
+        self.tuning_df_name = f'patient_{self.patient_id}_tuning_data.csv'
+        
         print(f'''  ..Writing dataframe to '{self.df_destination}' as .CSV.. ''')
         while True:   
             try:
-                self.patient_record_df.to_csv(f'patient_{self.patient_id}_records_data.csv')
-                self.patient_tuning_df.to_csv(f'patient_{self.patient_id}_tunings_data.csv')
+                self.patient_record_df.to_csv(self.record_df_name)
+                self.patient_tuning_df.to_csv(self.tuning_df_name)
                 break
             except PermissionError:
                 input('  Permission denied, close target file and press ENTER.. ')
+
         self.patient_record_df = self.patient_record_df.astype(dtype={'BEAM_ID':str, 'FRACTION_ID':str})
         self.patient_tuning_df = self.patient_tuning_df.astype(dtype={'BEAM_ID':str, 'FRACTION_ID':str})
-        self.record_df_name = f'patient_{self.patient_id}_records_data.csv'
-        self.tuning_df_name = f'patient_{self.patient_id}_tuning_data.csv'
         print('Complete')
     
 
-    def dicom_finder(self, fraction_id, beam_id):
-        to_be_sorted = self.patient_record_df.loc[(self.patient_record_df['FRACTION_ID'] == fraction_id) & (self.patient_record_df['BEAM_ID'] == beam_id)]
-        gtr_angle = to_be_sorted['GANTRY_ANGLE'].iloc[0]
-        n_layers = to_be_sorted['TOTAL_LAYERS'].iloc[0]
+    def dicom_finder(self, fraction_id, beam_id, verbose=True):
+        beam_df = self.patient_record_df.loc[(self.patient_record_df['FRACTION_ID'] == fraction_id) & (self.patient_record_df['BEAM_ID'] == beam_id)]
+        gtr_angle = beam_df['GANTRY_ANGLE'].iloc[0]
+        n_layers = beam_df['TOTAL_LAYERS'].iloc[0]
         found = False
 
-        print('\nTrying to auto-locate patient plan dicoms..')  # read RT plan dicom via filedialog
+        # auto-location of plan DICOM
+        if verbose:
+            print('  Trying to auto-locate patient plan dicoms..')  # read RT plan dicom via filedialog
+        
         for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
             for fname in filenames:
-                if fname.__contains__('RP') and fname.endswith('.dcm'):
+                if fname.__contains__('RP') and fname.endswith('.dcm') and not fname.__contains__('log'):
                     ds = pydicom.read_file(os.path.join(path, fname))
                     for i, beam in enumerate(ds.IonBeamSequence):
                         if (beam.BeamName == beam_id or beam.BeamDescription == beam_id) and float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:
-                            beam_dcm = beam
+                            plan_dcm = os.path.join(path, fname)
+                            beam_ds = beam
+                            if verbose:
+                                if not found:
+                                    print('    Found matching DICOM -', fname)
+                                else:
+                                    print('    /!\ Further DICOM match -', fname)
+
                             found = True
                             
-        if not found:
-            print(f'  /!\ Auto-location failed for beam-ID {beam_id} in fraction-ID {fraction_id}, select plan DICOM..')
-            pydicom.read(filedialog.askopenfilename(initialdir=os.path.join(self.logfile_dir, '..')))
+        while not found:  # open dicom file manually if failed
+            print(f'    /!\ Auto-location failed for beam-ID {beam_id} in fraction-ID {fraction_id}, select plan DICOM..')
+            target = filedialog.askopenfilename(initialdir=os.path.join(self.logfile_dir, '..'))
+            if target == '':
+                print('    /x\ Process cancelled by user')
+                return None
+                
+            ds = pydicom.read(target)
+            for beam in ds.IonBeamSequence:
+                if (beam.BeamName == beam_id or beam.BeamDescription == beam_id) and float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:
+                    beam_ds = beam
+                    found = True
         
-        return beam_dcm
+        return plan_dcm, beam_ds
 
 
-    def plot_beam_layers(self):     # For all layers in one beam, averaged over all fractions:
+    def spot_sorter(self, fraction_id, beam_id):
+        to_be_sorted = self.patient_record_df.loc[(self.patient_record_df['FRACTION_ID'] == fraction_id) & (self.patient_record_df['BEAM_ID'] == beam_id)]
+        n_layers = to_be_sorted['TOTAL_LAYERS'].iloc[0]
+        sorting_dict = {lid:{} for lid in range(n_layers)}
+
+        plan_dcm, beam_ds = self.dicom_finder(fraction_id, beam_id)
+        
+        # sorting 
+        print(f'  Sorting spots for beam-ID {beam_id}..')
+        for layer_id in to_be_sorted['LAYER_ID'].drop_duplicates():
+            try:
+                plan_layer = beam_ds.IonControlPointSequence[layer_id * 2]
+            except IndexError:
+                print(f'''  /!\ Layer-ID mismatch, skipping layer #{layer_id + 1} in beam {beam_id}, fraction {fraction_id}''')
+                continue
+
+            plan_spotmap = plan_layer.ScanSpotPositionMap
+            plan_x, plan_y = [], []
+            for i, spot in enumerate(plan_spotmap):
+                if i % 2 == 0:
+                    plan_x.append(spot)
+                else:
+                    plan_y.append(spot)
+            plan_xy = [tup for tup in zip(plan_x, plan_y)]
+
+            log_layer = to_be_sorted.loc[(to_be_sorted['LAYER_ID'] == layer_id) & (to_be_sorted['FRACTION_ID'] == fraction_id)]
+            log_xy = [tup for tup in zip(log_layer['X_POSITION(mm)'].to_list(), log_layer['Y_POSITION(mm)'].to_list())]
+            log_xy_sorted = [(np.nan, np.nan) for _ in range(max(len(log_xy), len(plan_xy)))]
+
+            # match (x,y)-positions to plan, transform MU list equally
+            for i, log_spot in enumerate(log_xy):
+                shifts = [np.array(plan_spot) - np.array(log_spot) for plan_spot in plan_xy]
+                dists = [abs((shift).dot(shift)) for shift in shifts]
+                index = dists.index(min(dists))
+                log_xy_sorted[index] = log_xy[i]
+
+            dropped = 0
+            for xy in log_xy_sorted:
+                if xy == (np.nan, np.nan):
+                    log_xy_sorted.remove(xy)
+                    dropped += 1
+            
+            if dropped > 1:
+                print(f'Dropped {dropped} spots | fx-ID {fraction_id} | beam-ID {beam_id} | layer-ID {layer_id}')
+                plt.plot(*zip(*plan_xy), marker='x', ls='-', color='tab:blue', label='plan')
+                plt.plot(*zip(*log_xy), marker='o', ls='--', color='tab:grey', label='log')
+                plt.plot(*zip(*log_xy_sorted), marker='o', ls='-', color='black', label='sorted')
+                plt.legend()
+                plt.draw()
+                raise ValueError(f'  /!\ Log beam {beam_id} does not match plan beam {beam_ds.BeamName}, retrying..')
+
+            sorting_dict[layer_id] = {log_xy.index(log_xy[i]) : log_xy.index(log_xy_sorted[i]) for i in range(len(log_xy))}  # do not iterate over elements directly, index() fails in this case
+
+        return sorting_dict       
+        
+
+    def plot_beam_layers(self):     # For all layers and last fraction of selected beam:
                                     # derive scatter plot of (x,y)-positions from logfile, 
                                     # compare vs. planned positions extracted from RP*.dcm
 
@@ -442,23 +519,24 @@ class MachineLog:
         beam_id = str(beam_list[key - 1])
         
         scope_record_df = self.patient_record_df.loc[self.patient_record_df['BEAM_ID'] == beam_id]  # slice currently needed portion from patient df
+        scope_record_df = scope_record_df.loc[scope_record_df['FRACTION_ID'] == scope_record_df['FRACTION_ID'].max()]  # analyze only beam from last fraction
         scope_tuning_df = self.patient_tuning_df.loc[self.patient_tuning_df['BEAM_ID'] == beam_id]
+        scope_tuning_df = scope_tuning_df.loc[scope_tuning_df['FRACTION_ID'] == scope_record_df['FRACTION_ID'].max()]
         print('Selected beam is:', beam_id)
 
-        dcm_beam = self.dicom_finder(fraction_id=scope_record_df['FRACTION_ID'].iloc[0], beam_id=beam_id)
-
         print('\nGenerating layer plot..')
+        plan_dcm, beam_ds = self.dicom_finder(fraction_id=scope_record_df['FRACTION_ID'].iloc[0], beam_id=beam_id, verbose=False)
+        beam_sorting_dict = self.spot_sorter(fraction_id=scope_record_df['FRACTION_ID'].iloc[0], beam_id=beam_id)
+
         fig, axs = plt.subplots(6, 8, sharex=True, sharey=True, figsize=(24, 24 * 6/8), dpi=150)  # initiate matrix-like layer plot
         ax0 = fig.add_subplot(111, frameon=False)
         fig.subplots_adjust(hspace=0.0, wspace=0.0)
         axs = axs.ravel()
 
-        pos_x_delta, pos_y_delta, pos_abs_delta = [], [], []
-        
         for layer_id in scope_record_df['LAYER_ID'].drop_duplicates():
-            x_positions, y_positions = [], []
-            x_tunings, y_tunings, = [], []
-            dcm_layer = dcm_beam.IonControlPointSequence[layer_id * 2]
+            layer_spot_df = scope_record_df.loc[scope_record_df['LAYER_ID'] == layer_id]
+            layer_tuning_df = scope_tuning_df.loc[scope_tuning_df['LAYER_ID'] == layer_id]
+            dcm_layer = beam_ds.IonControlPointSequence[layer_id * 2]
             plan_spotmap = dcm_layer.ScanSpotPositionMap
             plan_x_positions, plan_y_positions = [], []
             for i, coord in enumerate(plan_spotmap):
@@ -467,68 +545,49 @@ class MachineLog:
                 else:
                     plan_y_positions.append(coord)
             
-            for spot_id in scope_record_df.loc[scope_record_df['LAYER_ID'] == layer_id]['SPOT_ID'].drop_duplicates():
-                x_positions.append(scope_record_df.loc[(scope_record_df['LAYER_ID'] == layer_id) & (scope_record_df['SPOT_ID'] == spot_id)]['X_POSITION(mm)'].mean())
-                y_positions.append(scope_record_df.loc[(scope_record_df['LAYER_ID'] == layer_id) & (scope_record_df['SPOT_ID'] == spot_id)]['Y_POSITION(mm)'].mean())
-            for tuning_id in scope_tuning_df.loc[scope_tuning_df['LAYER_ID'] == layer_id]['SPOT_ID'].drop_duplicates():   
-                x_tunings.append(scope_tuning_df.loc[(scope_tuning_df['LAYER_ID'] == layer_id) & (scope_tuning_df['SPOT_ID'] == tuning_id)]['X_POSITION(mm)'].mean())
-                y_tunings.append(scope_tuning_df.loc[(scope_tuning_df['LAYER_ID'] == layer_id) & (scope_tuning_df['SPOT_ID'] == tuning_id)]['Y_POSITION(mm)'].mean())
-
-            spot_points_log = [tuple for tuple in zip(x_positions, y_positions)]
-            spot_points_plan = [tuple for tuple in zip(plan_x_positions, plan_y_positions)]
-            xy_positions_sorted = [(0.0, 0.0) for i in range(max([len(spot_points_log), len(spot_points_plan)]))]
-            for xy_log in spot_points_log:
-                x_differences, y_differences = [], []
-                distances = []
-                for xy_plan in spot_points_plan:  # calculate position difference and euclidian distance for every spot pair, find minimum to reindex (return sorted spots)
-                    diff = np.array(xy_plan) - np.array(xy_log)
-                    sqdist = abs((diff).dot(diff))
-                    distances.append(sqdist)
-                    x_differences.append(diff[0]), y_differences.append(diff[1])
-
-                min_dist = min(distances)
-                pos_abs_delta.append(min_dist)
-                index = distances.index(min_dist)
-                pos_x_delta.append(x_differences[index]), pos_y_delta.append(y_differences[index])
-                xy_positions_sorted[index] = xy_log
+            spot_points_log = [tuple for tuple in zip(layer_spot_df['X_POSITION(mm)'].to_list(), layer_spot_df['Y_POSITION(mm)'].to_list())]
+            tuning_points_log = [tuple for tuple in zip(layer_tuning_df['X_POSITION(mm)'].to_list(), layer_tuning_df['Y_POSITION(mm)'].to_list())]
+            spot_points_sorted = [spot_points_log[beam_sorting_dict[layer_id][i]] for i in range(len(spot_points_log))]
             
-            for element in xy_positions_sorted:
-                if element == (0.0, 0.0):
-                    xy_positions_sorted.remove(element)
-            
-            if beam_id == '03' and layer_id == 10:
-                fig2, ax2 = plt.subplots(figsize=(6, 6))
-                ax2.plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', label='Planned')
-                ax2.plot(x_positions, y_positions, marker='o', markerfacecolor='None', linestyle='--', color='grey', label='Log-file original')
-                ax2.plot(*zip(*xy_positions_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', label='Log-file sorted')
-                ax2.plot(x_tunings, y_tunings, marker='o', markerfacecolor='None', linestyle='None', color='limegreen', label='Tuning spot(s)')
-                # ax2.annotate(f'Beam {beam_id} | Layer #{str(layer_id + 1).zfill(2)} | $\Delta$ = {abs(len(plan_x_positions) - len(x_positions))}', xy=(1.0, 1.0), xycoords='axes points')
-                ax2.set_xlabel('X [mm]')
-                ax2.set_ylabel('Y [mm]')
-                ax2.legend()
-                fig2.tight_layout()
-                fig2.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_spotmap_KS.png', dpi=600)
+            # if beam_id == '01' and layer_id == 7:
+            #     fig2, ax2 = plt.subplots(figsize=(6, 6))
+            #     ax2.plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', label='Planned')
+            #     ax2.plot(*zip(*spot_points_log), marker='o', markerfacecolor='None', linestyle='--', color='grey', label='Log-file original')
+            #     ax2.plot(*zip(*xy_positions_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', label='Log-file sorted')
+            #     ax2.plot(x_tunings, y_tunings, marker='o', markerfacecolor='None', linestyle='None', color='limegreen', label='Tuning spot(s)')
+            #     # ax2.annotate(f'Beam {beam_id} | Layer #{str(layer_id + 1).zfill(2)} | $\Delta$ = {abs(len(plan_x_positions) - len(x_positions))}', xy=(1.0, 1.0), xycoords='axes points')
+            #     ax2.set_xlabel('X [mm]')
+            #     ax2.set_ylabel('Y [mm]')
+            #     ax2.legend()
+            #     fig2.tight_layout()
+            #     fig2.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_spotmap_KS.png', dpi=600)
+            #    
+            #     return None
 
             axs[layer_id].plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Planned')
-            axs[layer_id].plot(*zip(*xy_positions_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Log-file sorted')
-            axs[layer_id].plot(x_positions, y_positions, marker='o', markerfacecolor='None', linestyle='--', color='black', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Log-file original')
-            axs[layer_id].plot(x_tunings, y_tunings, marker='o', markerfacecolor='None', linestyle='None', markersize=2.0, markeredgewidth=0.2, color='limegreen', label='Tuning spot(s)')
-            axs[layer_id].annotate(f'Layer #{str(layer_id + 1).zfill(2)} | $\Delta$ = {abs(len(plan_x_positions) - len(x_positions))}', xy=(1.0, 1.0), xycoords='axes points', fontsize=8)
-            if len(x_tunings) > 1:
-                axs[layer_id].annotate(f'Layer #{str(layer_id + 1).zfill(2)} | $\Delta$ = {abs(len(plan_x_positions) - len(x_positions))} | $n_t$ > 1', xy=(1.0, 1.0), xycoords='axes points', fontsize=8) 
+            axs[layer_id].plot(*zip(*spot_points_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Log-file sorted')
+            axs[layer_id].plot(*zip(*spot_points_log), marker='o', markerfacecolor='None', linestyle='--', color='black', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Log-file original')
+            axs[layer_id].plot(*zip(*tuning_points_log), marker='o', markerfacecolor='None', linestyle='None', markersize=2.0, markeredgewidth=0.2, color='limegreen', label='Tuning spot(s)')
+            axs[layer_id].annotate(f'Layer #{str(layer_id + 1).zfill(2)} | $\Delta$ = {abs(len(plan_x_positions) - len(spot_points_log))}', xy=(1.0, 1.0), xycoords='axes points', fontsize=8)
+            
+            if len(tuning_points_log) > 1:
+                axs[layer_id].annotate(f'Layer #{str(layer_id + 1).zfill(2)} | $\Delta$ = {abs(len(plan_x_positions) - len(spot_points_log))} | $n_t$ > 1', xy=(1.0, 1.0), xycoords='axes points', fontsize=8) 
             axs[layer_id].legend(loc='upper right', fontsize=8)
+
         plt.suptitle(f'Spot Positions for Patient-ID {self.patient_id}, Beam-ID: {beam_id}', fontweight='bold', y=0.9)
         ax0.set_xlabel('X [mm]', fontweight='bold', labelpad=10)
         ax0.set_ylabel('Y [mm]', fontweight='bold', labelpad=10)
         plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
         if not os.path.isdir(output_dir):
             os.mkdir(output_dir)
+
+        print(f'  Saving figure to {output_dir}..')
         while True:
             try:
                 fig.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_spots.pdf')
                 break
             except PermissionError:
-                input('  Permission denied, close target file and press ENTER.. ')
+                input('  /!\ Permission denied, close target file and press ENTER.. ')
         plt.close()
         plt.clf()
 
@@ -1131,42 +1190,14 @@ class MachineLog:
             target_record = self.patient_record_df.loc[self.patient_record_df['FRACTION_ID'] == fx_id]
             target_tuning = self.patient_tuning_df.loc[self.patient_tuning_df['FRACTION_ID'] == fx_id]
             beam_list = [str(i) for i in target_record['BEAM_ID'].drop_duplicates()]
-            beam_dcm_dict = {id:[] for id in beam_list}
-
-            # auto-locate corresponding plan
-            print('\nTrying to auto-locate patient plan dicoms..')
-            dicoms = []
-            for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
-                for fname in filenames:
-                    if fname.__contains__('RP') and fname.endswith('.dcm') and not fname.__contains__('log'):
-                        ds = pydicom.read_file(os.path.join(path, fname))
-                        for i, dcm_beam in enumerate(ds.IonBeamSequence):
-                            if float(dcm_beam.IonControlPointSequence[0].GantryAngle) in self.patient_record_df['GANTRY_ANGLE'].drop_duplicates().to_list():
-                                if dcm_beam.BeamName in beam_list or dcm_beam.BeamDescription in beam_list:
-                                    dicoms.append(os.path.join(path, fname))
-            
-            for i, dci in enumerate(dicoms):
-                for j, dcj in enumerate(dicoms):
-                    if i != j and dci == dcj:
-                        dicoms.remove(dcj)
-
-            if len(dicoms) == 1:
-                plan_dcm = dicoms[0]
-                print(f'''  Found matching dicom file {dicoms[0]}''')
-            elif len(dicoms) > 1:
-                print(f'''  /!\ Multiple dicom files matching beam combination in fraction-ID {fx_id}\n      Will proceed with {dicoms[0]}''')
-                plan_dcm = dicoms[0]
-            elif len(dicoms) == 0:
-                print(f'  /x\ Fx-ID {fx_id}: No matching dicom files detected, please select manually..')
-                root = Tk()
-                plan_dcm = filedialog.askopenfilename()
-            
+            plan_dcm, beam_ds = self.dicom_finder(fx_id, beam_list[0])
             dcm_path = os.path.dirname(plan_dcm)
             
-            print('Manipulating dicom..')
+            print('\nManipulating dicom..')
             ds = pydicom.read_file(plan_dcm)
             for i, (beam_id, plan_beam) in enumerate(zip(beam_list, ds.IonBeamSequence)):
                 beam_df = target_record.loc[target_record['BEAM_ID'] == beam_id]
+                # sorting_dict = self.spot_sorter(fx_id, beam_id)
                 total_layers = beam_df['TOTAL_LAYERS'][0]
                 cumulative_mu = 0
                 for layer_id in target_record.loc[target_record['BEAM_ID'] == beam_id]['LAYER_ID'].drop_duplicates():
@@ -1178,6 +1209,9 @@ class MachineLog:
                         layer_xy.append(layer_df['Y_POSITION(mm)'][spot])
                         layer_mu.append(layer_df['MU'][spot])
                     
+                    # print(len(sorting_dict[layer_id]), len(layer_xy))  # inclusion of tuning spot breaks sorting keys + list shapes different (tuple vs. series)
+                    # sorted_xy = [layer_xy[sorting_dict[layer_id][x]] for x in range(len(layer_xy))]
+                    # sorted_mu = [layer_mu[sorting_dict[layer_id][i]] for i in range(total_layers)]
                     n_spots = len(layer_mu)
 
                     plan_beam.IonControlPointSequence[layer_id * 2].NumberOfScanSpotPositions = plan_beam.IonControlPointSequence[layer_id * 2 + 1].NumberOfScanSpotPositions = n_spots
@@ -1185,7 +1219,7 @@ class MachineLog:
 
                     if mode == 'all':
                         if layer_id == 0:
-                            print(f'Will overwrite planned positions and metersets for beam-iD {beam_id}..')
+                            print(f'  Will overwrite planned positions and metersets for beam-iD {beam_id}..')
                         plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotPositionMap = plan_beam.IonControlPointSequence[layer_id * 2 + 1].ScanSpotPositionMap = layer_xy
                         plan_beam.IonControlPointSequence[layer_id * 2].CumulativeMetersetWeight = cumulative_mu
                         cumulative_mu += sum(layer_mu)
@@ -1196,7 +1230,7 @@ class MachineLog:
                     
                     else:
                         if layer_id == 0:
-                            print(f'Sorting spots for beam-ID {beam_id}..')
+                            print(f'  Sorting spots for beam-ID {beam_id}..')
                         plan_spotmap = plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotPositionMap
                         plan_x, plan_y = [], []
                         new_plan_x, new_plan_y, new_plan_mu = [], [], []
@@ -1244,26 +1278,23 @@ class MachineLog:
             ds.ReferringPhysicianName = 'Wolter^Lukas'
             ds.ApprovalStatus = 'UNAPPROVED'
 
-            print('Writing dicom..')
+            print('\nWriting dicom..')
             destination = os.path.join(dcm_path, f'RP{ds.SOPInstanceUID}_fx_{fx_id}_log_{mode}.dcm')
             pydicom.write_file(destination, ds)
             print(f'Wrote log-based plan to RP{ds.SOPInstanceUID}_fx_{fx_id}_log_{mode}.dcm')
                 
 
 if __name__ == '__main__':
-    # log = MachineLog()
+    log = MachineLog()
     # log.prepare_dataframe()
-    # log.plot_beam_layers()    
+    log.plot_beam_layers()    
     # log.plot_spot_statistics()
     # log.prepare_deltaframe()
     # log.delta_dependencies()
     # log.plan_creator(fraction='last', mode='all')
     # log.beam_timings()
+    # sorting_dict = log.spot_sorter(fraction_id=log.fraction_list[0], beam_id=log.patient_record_df['BEAM_ID'].iloc[0])
     pass
 
 else:
     print('>> Module', __name__, 'loaded')
-
-# %%
-from logfile_extractor import MachineLog
-log = MachineLog()
