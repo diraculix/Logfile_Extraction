@@ -182,7 +182,7 @@ class MachineLog:
                 # Source: IBA Particle Therapy 08/22 (Jozef Bokor), universal nozzle WET polynomial coefficients
                 iba_gtr2_poly = [0.001684756748152, -0.00490089228886989, 0.561372013469097, 3.46404838890297]
                 
-                layer_exceptions = []
+                layer_exceptions, finalized_layers, finalized_tunings = [], [self.patient_record_df], [self.patient_tuning_df]
                 for layer_id in range(num_layers):
                     to_do_layers, to_do_tunings = [], []
                     no_exceptions = True
@@ -356,15 +356,8 @@ class MachineLog:
                     
                     del to_do_layers, to_do_tunings
                     
-                    if self.patient_record_df.empty:
-                        self.patient_record_df = layer_df
-                        self.patient_tuning_df = tuning_df
-                    else:
-                        self.patient_record_df = pd.concat([self.patient_record_df, layer_df], sort=True)    
-                        self.patient_tuning_df = pd.concat([self.patient_tuning_df, tuning_df], sort=True)
-                    
-                    del layer_df, tuning_df
-                    
+                    finalized_layers.append(layer_df), finalized_tunings.append(tuning_df)
+
                     if no_exceptions:
                         char = '#'
                     else:
@@ -380,9 +373,11 @@ class MachineLog:
                     
                     no_exceptions = True
 
+                self.patient_record_df = pd.concat(finalized_layers, sort=True)
+                self.patient_tuning_df = pd.concat(finalized_tunings, sort=True)
                 os.chdir(self.logfile_dir)
 
-            print(f'  ..Fraction {str(fraction_no + 1).zfill(2)}/{str(self.num_fractions).zfill(2)} complete..') 
+            print(f'  ..Fraction {str(fraction_no + 1).zfill(2)}/{str(self.num_fractions).zfill(2)} complete..')
 
         # write out as .csv
         os.chdir(self.df_destination)
@@ -423,29 +418,37 @@ class MachineLog:
                 if fname.__contains__('RP') and fname.endswith('.dcm') and not fname.__contains__('log'):
                     ds = pydicom.read_file(os.path.join(path, fname))
                     for i, beam in enumerate(ds.IonBeamSequence):
-                        if (beam.BeamName == beam_id or beam.BeamDescription == beam_id) and float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:
-                            plan_dcm = os.path.join(path, fname)
-                            beam_ds = beam
-                            if verbose:
-                                if not found:
-                                    print('    Found matching DICOM -', fname)
-                                else:
-                                    print('    /!\ Further DICOM match -', fname)
-
-                            found = True
+                        plan_energies = np.array(pd.Series([layer.NominalBeamEnergy for layer in beam.IonControlPointSequence]).drop_duplicates().to_list())
+                        log_energies = np.array(beam_df['LAYER_ENERGY(MeV)'].drop_duplicates().to_list())
+                        
+                        # check gantry angle, total layers, beam energies. Do not check names, they are non-standardized
+                        if float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:
+                            max_energy_diff = np.max(np.abs(plan_energies - log_energies))
+                            if max_energy_diff < 0.1:
+                                plan_dcm = os.path.join(path, fname)
+                                beam_ds = beam
+                                if verbose:
+                                    if not found:
+                                        print('    Found matching DICOM -', fname)
+                                    else:
+                                        print('    /!\ Further DICOM match -', fname)
+                                found = True
                             
         while not found:  # open dicom file manually if failed
+            root = Tk()
             print(f'    /!\ Auto-location failed for beam-ID {beam_id} in fraction-ID {fraction_id}, select plan DICOM..')
-            target = filedialog.askopenfilename(initialdir=os.path.join(self.logfile_dir, '..'))
-            if target == '':
+            plan_dcm = filedialog.askopenfilename(initialdir=os.path.join(self.logfile_dir, '..'))
+            if plan_dcm == '':
                 print('    /x\ Process cancelled by user')
                 return None
                 
-            ds = pydicom.read(target)
-            for beam in ds.IonBeamSequence:
-                if (beam.BeamName == beam_id or beam.BeamDescription == beam_id) and float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:
+            ds = pydicom.read_file(plan_dcm)
+            for beam in ds.IonBeamSequence:  # check only gtr-angle and number of layers, omit energy check
+                if float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:
                     beam_ds = beam
                     found = True
+            
+            root.destroy()
         
         return plan_dcm, beam_ds
 
@@ -795,7 +798,7 @@ class MachineLog:
         
         # print(f'{valid_beams}/{len(beam_list)} recorded beams found in patient dicoms')
     	
-        unique_index = 0
+        to_concat, unique_index = [], 0
         for f, fx_id in enumerate(self.patient_record_df['FRACTION_ID'].drop_duplicates()):
             fraction_df = self.patient_record_df.loc[self.patient_record_df['FRACTION_ID'] == fx_id]
             for beam_id in fraction_df['BEAM_ID'].drop_duplicates():
@@ -888,11 +891,7 @@ class MachineLog:
                     fx_delta_df['GANTRY_ANGLE'] = float(beam_ds.IonControlPointSequence[0].GantryAngle)
                     fx_delta_df['TOTAL_LAYERS'] = int(beam_df['TOTAL_LAYERS'].mean())
 
-                    if self.patient_delta_df.empty:
-                        self.patient_delta_df = fx_delta_df
-                    else:
-                        self.patient_delta_df = pd.concat([self.patient_delta_df, fx_delta_df], sort=True)
-                    
+                    to_concat.append(fx_delta_df)
                     unique_index += len(log_xy_sorted)
 
                     if layer_id == (num_layers - 1):  # progress visualization
@@ -901,6 +900,10 @@ class MachineLog:
                         print('  ', '[' + (layer_id + 1) * '#' + (num_layers - layer_id - 1) * '-' + ']', end=f' Layer {str(layer_id + 1).zfill(2)}/{str(num_layers).zfill(2)}\r')
 
             print(f'  ..Fraction {f + 1}/{self.num_fractions} complete..')
+
+        # concatenate layer deltaframes
+        print('  ..Concatenating..')
+        self.patient_delta_df = pd.concat(to_concat, sort=True)
 
         # write deltaframe
         os.chdir(self.df_destination)
@@ -1360,10 +1363,10 @@ class MachineLog:
 
 if __name__ == '__main__':
     log = MachineLog()
-    # log.prepare_dataframe()
+    log.prepare_dataframe()
     # log.plot_beam_layers()    
     # log.plot_spot_statistics()
-    log.prepare_deltaframe()
+    # log.prepare_deltaframe()
     # log.delta_dependencies()
     # log.plan_creator(fraction='last', mode='all')
     # log.beam_timings()
@@ -1373,3 +1376,4 @@ if __name__ == '__main__':
 
 else:
     print('>> Module', __name__, 'loaded')
+    
