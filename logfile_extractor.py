@@ -921,12 +921,11 @@ class MachineLog:
             if file.__contains__(str(self.patient_id)) and file.__contains__('delta') and file.endswith('.csv'):
                 print(f'''Found patient deltaframe '{file}', reading in..''')
                 self.patient_delta_df = pd.read_csv(os.path.join(self.df_destination, file), index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
-            elif file.__contains__('records') and file.endswith('.csv') and not file.__contains__(str(self.patient_id)):
+            if file.__contains__('records') and file.endswith('.csv'):
                 other_records.append(os.path.join(self.df_destination, file))           
-            elif file.__contains__('delta') and file.endswith('.csv') and not file.__contains__(str(self.patient_id)):
+            if file.__contains__('delta') and file.endswith('.csv'):
                 other_deltas.append(os.path.join(self.df_destination, file))   
 
-        print(other_records, '\n', other_deltas)
         try:
             delta_shape = self.patient_delta_df.shape
             if self.patient_record_df.shape != delta_shape:
@@ -937,16 +936,41 @@ class MachineLog:
             print(f'''\nUnable to locate patient deltaframe for patient-ID {self.patient_id}, calling prepare_deltaframe()..''')
             self.prepare_deltaframe()
         
-        joint_df = self.patient_delta_df
-        joint_df.drop(columns=['DRILL_TIME(ms)', 'FRACTION_ID', 'BEAM_ID', 'LAYER_ID', 'TOTAL_LAYERS', 'SPOT_ID'], inplace=True)
-        joint_df['LAYER_ENERGY(MeV)'] = self.patient_record_df['LAYER_ENERGY(MeV)'].to_list()
-        joint_df['MU'] = self.patient_record_df['MU'].to_list()
-        joint_df['X_POSITION(mm)'] = self.patient_record_df['X_POSITION(mm)'].to_list()
-        joint_df['Y_POSITION(mm)'] = self.patient_record_df['Y_POSITION(mm)'].to_list()
+        to_drop, to_concat = ['DRILL_TIME(ms)', 'FRACTION_ID', 'BEAM_ID', 'LAYER_ID', 'TOTAL_LAYERS', 'SPOT_ID'], []
+
+        print('Gathering correlation data from patient database..')
+        for this_record in other_records:
+            has_delta = False
+            this_patient_id = this_record.split('\\')[-1].split('_')[1]
+            for this_delta in other_deltas:
+                this_delta_id = this_delta.split('\\')[-1].split('_')[1]
+                if this_patient_id == this_delta_id:
+                    this_record_df = pd.read_csv(this_record, index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+                    this_joint_df = pd.read_csv(this_delta, index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+                    has_delta = True
+                    break
+
+            if not has_delta:
+                print(f'  /!\ No deltaframe found for patient-ID {this_patient_id}, skipping..')
+                continue
+
+            if this_record_df.shape[0] == this_joint_df.shape[0]:
+                this_joint_df.drop(columns=to_drop, inplace=True)
+                this_joint_df['LAYER_ENERGY(MeV)'] = this_record_df['LAYER_ENERGY(MeV)'].to_list()
+                this_joint_df['MU'] = this_record_df['MU'].to_list()
+                this_joint_df['X_POSITION(mm)'] = this_record_df['X_POSITION(mm)'].to_list()
+                this_joint_df['Y_POSITION(mm)'] = this_record_df['Y_POSITION(mm)'].to_list()
+                to_concat.append(this_joint_df)
+            else:
+                print(f'  /!\ Dataframe shapes do not match [{this_record_df.shape} vs. {this_joint_df.shape}], skipping patient-ID {this_patient_id}..')
+                continue
         
+        joint_df = pd.concat(to_concat, ignore_index=True)
+        del to_concat
+
         corr_matrix = joint_df.corr(method='pearson')
         fig, ax = plt.subplots(1, 1, figsize=(16, 10))
-        sns.heatmap(corr_matrix, annot=True)
+        sns.heatmap(corr_matrix, annot=True, cmap='icefire')
         plt.tight_layout()
         plt.savefig(f'{output_dir}/{self.patient_id}_correlation_matrix.png', dpi=150)
 
@@ -1337,9 +1361,9 @@ class MachineLog:
 if __name__ == '__main__':
     log = MachineLog()
     # log.prepare_dataframe()
-    log.plot_beam_layers()    
+    # log.plot_beam_layers()    
     # log.plot_spot_statistics()
-    # log.prepare_deltaframe()
+    log.prepare_deltaframe()
     # log.delta_dependencies()
     # log.plan_creator(fraction='last', mode='all')
     # log.beam_timings()
