@@ -137,9 +137,9 @@ class MachineLog:
                         beam_file = file
                     elif file.__contains__('beam_config.'):
                         beam_config = file
-                    elif file.__contains__('map_record') and file.__contains__('part'):
+                    elif file.__contains__('map_record') and file.__contains__('part') and not file.__contains__('temp'):
                         map_records.append(file)
-                    elif file.__contains__('map_record') and file.__contains__('tuning'):
+                    elif file.__contains__('map_record') and file.__contains__('tuning') and not file.__contains__('temp'):
                         tunings.append(file)
                     elif file.__contains__('map_specif') and file.__contains__('part'):
                         record_specifs.append(file)
@@ -190,9 +190,41 @@ class MachineLog:
                         if int(record_file.split('_')[2].split('_')[0]) == layer_id:
                             try:
                                 record_file_df = pd.read_csv(record_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
+
                             except:
-                                print('Read CSV error:', fraction_id, beam_id, record_file)
-                                continue
+                                print('  /!\ Read CSV error:', fraction_id, beam_id, record_file)
+                                print('      Cleaning record file..')
+                                with open(record_file, 'r') as record:
+                                    lines, splits = record.readlines(), []
+                                    for nr, line in enumerate(lines):
+                                        if line.__contains__('beamline') and lines[nr - 1] in ['\n', '\r\n']:
+                                            splits.append(nr)
+                                    record.close()
+                                
+                                temp_record_files = []
+                                for nr, split_at in enumerate(splits):
+                                    temp_record_name = record_file.split('.')[:-1]
+                                    temp_record_name.append(f'temp_{nr + 1}.csv')
+                                    temp_record_name = '_'.join(temp_record_name)
+                                    with open(temp_record_name, 'w+') as temp_record:
+                                        if nr == 0:
+                                            temp_record.writelines(lines[:splits[nr + 1]])
+                                        else:
+                                            try:
+                                                temp_record.writelines(lines[split_at:splits[nr + 1]])
+                                            except:
+                                                temp_record.writelines(lines[split_at:])
+                                        
+                                        temp_record_files.append(temp_record.name)
+                                        temp_record.close()
+                                
+                                for i, temp_record_file in enumerate(temp_record_files):
+                                    if temp_record_file.__contains__('_temp_'):
+                                        if i==0:
+                                            record_file_df = pd.read_csv(temp_record_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
+                                        else:
+                                            map_records.insert(layer_id + 1, temp_record_file)
+                                
                             try:
                                 record_file_df['TIME'] = pd.to_datetime(record_file_df['TIME'])     # datetime index --> chronological order
                                 record_file_df.index = record_file_df['TIME']                              
@@ -257,8 +289,38 @@ class MachineLog:
                             try:
                                 tuning_file_df = pd.read_csv(tuning_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
                             except:
-                                print('Read CSV error:', fraction_id, beam_id, record_file)
-                                continue
+                                print('  /!\ Read CSV error:', fraction_id, beam_id, tuning_file)
+                                print('      Cleaning tuning file..')
+                                with open(tuning_file, 'r') as tuning:
+                                    lines, splits = tuning.readlines(), []
+                                    for nr, line in enumerate(lines):
+                                        if line.__contains__('beamline') and lines[nr - 1] in ['\n', '\r\n']:
+                                            splits.append(nr)
+                                    tuning.close()
+                                
+                                temp_tuning_files = []
+                                for nr, split_at in enumerate(splits):
+                                    temp_tuning_name = tuning_file.split('.')[:-1]
+                                    temp_tuning_name.append(f'temp_{nr + 1}.csv')
+                                    temp_tuning_name = '_'.join(temp_tuning_name)
+                                    with open(temp_tuning_name, 'w+') as temp_tuning:
+                                        if nr == 0:
+                                            temp_tuning.writelines(lines[:splits[nr + 1]])
+                                        else:
+                                            try:
+                                                temp_tuning.writelines(lines[split_at:splits[nr + 1]])
+                                            except:
+                                                temp_tuning.writelines(lines[split_at:])
+                                        
+                                        temp_tuning_files.append(temp_tuning.name)
+                                        temp_tuning.close()
+                                
+                                for i, temp_tuning_file in enumerate(temp_tuning_files):
+                                    if temp_tuning_file.__contains__('_temp_'):
+                                        if i==0:
+                                            tuning_file_df = pd.read_csv(temp_tuning_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
+                                        else:
+                                            tunings.insert(layer_id + 1, temp_tuning_file)
                             try:
                                 tuning_file_df['TIME'] = pd.to_datetime(tuning_file_df['TIME'])
                                 tuning_file_df.index = tuning_file_df['TIME']
@@ -367,11 +429,16 @@ class MachineLog:
                         if no_exceptions:
                             print('  ', '[' + (layer_id + 1) * char + (num_layers - layer_id - 1) * '-' + ']', end=f' Beam {beam_id} complete\n')
                         else:    
-                            print('  ', '[' + (layer_id + 1) * char + (num_layers - layer_id - 1) * '-' + ']', end=f' Beam {beam_id} complete (empty dataframe exception in layer(s) {layer_exceptions})\n')
+                            print('  ', '[' + (layer_id + 1) * char + (num_layers - layer_id - 1) * '-' + ']', end=f' Beam {beam_id} complete (empty dataframe exception in layer(s) {layer_exceptions}\n')
                     else:
                         print('  ', '[' + (layer_id + 1) * char + (num_layers - layer_id - 1) * '-' + ']', end=f' Layer {str(layer_id + 1).zfill(2)}/{str(num_layers).zfill(2)}\r')
                     
                     no_exceptions = True
+
+                # remove temporary files
+                for file in os.listdir('.'):
+                    if file.__contains__('temp'):
+                        os.remove(file)
 
                 self.patient_record_df = pd.concat(finalized_layers, sort=True)
                 self.patient_tuning_df = pd.concat(finalized_tunings, sort=True)
@@ -411,15 +478,15 @@ class MachineLog:
 
         # auto-location of plan DICOM
         if verbose:
-            print('  Trying to auto-locate patient plan dicoms..')  # read RT plan dicom via filedialog
+            print('  Trying to auto-locate patient plan dicoms..')
         
         for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
             for fname in filenames:
                 if fname.__contains__('RP') and fname.endswith('.dcm') and not fname.__contains__('log'):
                     ds = pydicom.read_file(os.path.join(path, fname))
                     for i, beam in enumerate(ds.IonBeamSequence):
-                        plan_energies = np.array(pd.Series([layer.NominalBeamEnergy for layer in beam.IonControlPointSequence]).drop_duplicates().to_list())
-                        log_energies = np.array(beam_df['LAYER_ENERGY(MeV)'].drop_duplicates().to_list())
+                        plan_energies = np.array(pd.Series(sorted([layer.NominalBeamEnergy for layer in beam.IonControlPointSequence])).drop_duplicates().to_list())
+                        log_energies = np.array(sorted(beam_df['LAYER_ENERGY(MeV)'].drop_duplicates().to_list()))
                         
                         # check gantry angle, total layers, beam energies. Do not check names, they are non-standardized
                         if float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:
@@ -501,8 +568,9 @@ class MachineLog:
                 plt.plot(*zip(*log_xy), marker='o', ls='--', color='tab:grey', label='log')
                 plt.plot(*zip(*log_xy_sorted), marker='o', ls='-', color='black', label='sorted')
                 plt.legend()
-                plt.draw()
-                raise ValueError(f'  /!\ Log beam {beam_id} does not match plan beam {beam_ds.BeamName}, retrying..')
+                plt.show()
+                print(f'  /!\ Log beam {beam_id} spots do not match plan beam {beam_ds.BeamName}')
+                return None
 
             sorting_dict[layer_id] = {log_xy.index(log_xy[i]) : log_xy.index(log_xy_sorted[i]) for i in range(len(log_xy))}  # do not iterate over elements directly, index() fails in this case
 
@@ -766,7 +834,7 @@ class MachineLog:
                                              }, inplace=True)
         self.patient_delta_df['UNIQUE_INDEX'] = np.nan
         self.patient_delta_df.index = self.patient_delta_df['UNIQUE_INDEX']
-        self.patient_delta_df = self.patient_delta_df.iloc[0:0]
+        self.patient_delta_df = self.patient_delta_df.iloc[0:0]  # empty deltaframe
 
         # find corresponding plan dicoms
         # beam_list = [str(i) for i in self.patient_record_df['BEAM_ID'].drop_duplicates()]
@@ -865,8 +933,8 @@ class MachineLog:
                         plt.plot(*zip(*log_xy), marker='o', ls='--', color='tab:grey', label='log')
                         plt.plot(*zip(*log_xy_sorted), marker='o', ls='-', color='black', label='sorted')
                         plt.legend()
-                        plt.draw()
-                        raise ValueError(f'  /!\ Log beam {beam_id} does not match plan beam {beam_ds.BeamName}, retrying..')
+                        plt.show()
+                        print(f'  /!\ Log beam {beam_id} spots do not match plan beam {beam_ds.BeamName}')
 
                     # generate new dataframe 
                     fx_delta_df = pd.DataFrame(columns=self.patient_delta_df.columns)
@@ -1363,11 +1431,12 @@ class MachineLog:
 
 if __name__ == '__main__':
     log = MachineLog()
-    log.prepare_dataframe()
+    # log.prepare_dataframe()
     # log.plot_beam_layers()    
     # log.plot_spot_statistics()
     # log.prepare_deltaframe()
     # log.delta_dependencies()
+    # log.dicom_finder('20200604', '07', True)
     # log.plan_creator(fraction='last', mode='all')
     # log.beam_timings()
     # log.delta_correlation_matrix()
