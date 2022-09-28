@@ -92,7 +92,7 @@ class MachineLog:
                     print(f'''Found patient record dataframe '{self.record_df_name}', reading in..''')
                     self.patient_record_df = pd.read_csv(os.path.join(dirpath, fname), index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
                     record_df_exists = True
-                elif fname.__contains__(f'{self.patient_id}_tunings') and fname.endswith('.csv'):
+                elif fname.__contains__(f'{self.patient_id}_tuning') and fname.endswith('.csv'):
                     self.tuning_df_name = fname
                     print(f'''Found patient tuning dataframe '{self.tuning_df_name}', reading in..''')
                     self.patient_tuning_df = pd.read_csv(os.path.join(dirpath, fname), index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
@@ -1431,10 +1431,10 @@ class MachineLog:
 
 if __name__ == '__main__':
     log = MachineLog()
-    # log.prepare_dataframe()
+    log.prepare_dataframe()
     # log.plot_beam_layers()    
     # log.plot_spot_statistics()
-    # log.prepare_deltaframe()
+    log.prepare_deltaframe()
     # log.delta_dependencies()
     # log.dicom_finder('20200604', '07', True)
     # log.plan_creator(fraction='last', mode='all')
