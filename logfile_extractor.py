@@ -192,7 +192,7 @@ class MachineLog:
                                 record_file_df = pd.read_csv(record_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
 
                             except:
-                                print('  /!\ Read CSV error:', fraction_id, beam_id, record_file)
+                                print('  /!\ Read CSV error:', record_file)
                                 print('      Cleaning record file..')
                                 with open(record_file, 'r') as record:
                                     lines, splits = record.readlines(), []
@@ -220,11 +220,10 @@ class MachineLog:
                                 
                                 for i, temp_record_file in enumerate(temp_record_files):
                                     if temp_record_file.__contains__('_temp_'):
-                                        if i==0:
-                                            record_file_df = pd.read_csv(temp_record_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
-                                        else:
-                                            map_records.insert(layer_id + 1, temp_record_file)
-                                
+                                        map_records.insert(layer_id + (i+1), temp_record_file)
+                                    
+                                continue
+                                        
                             try:
                                 record_file_df['TIME'] = pd.to_datetime(record_file_df['TIME'])     # datetime index --> chronological order
                                 record_file_df.index = record_file_df['TIME']                              
@@ -232,9 +231,13 @@ class MachineLog:
                                 record_file_df = record_file_df.loc[:, :'Y_POSITION(mm)']           # slice dataframe, drop redundant columns
                                 record_file_df['DOSE_PRIM(C)'] = charge_col
                                 record_file_df.drop(columns=['TIME'], inplace=True)
-                                record_file_df.drop(record_file_df[record_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)
+                                try:
+                                    record_file_df.drop(record_file_df[record_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)
+                                except:
+                                    pass
                                 record_file_df = record_file_df[record_file_df.groupby('SUBMAP_NUMBER')['SUBMAP_NUMBER'].transform('count') > 1]  # drop all rows without plan-relevant data
                                 record_file_df.drop(columns=['X_WIDTH(mm)', 'Y_WIDTH(mm)'], inplace=True)  # not needed for plan, uniform spot sizes in beam model
+                            
                             except:  # unlikely event of unusable information in log-file (possible if split into parts)
                                 no_exceptions = False
                                 layer_exceptions.append(layer_id)
@@ -289,7 +292,7 @@ class MachineLog:
                             try:
                                 tuning_file_df = pd.read_csv(tuning_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
                             except:
-                                print('  /!\ Read CSV error:', fraction_id, beam_id, tuning_file)
+                                print('  /!\ Read CSV error:', tuning_file)
                                 print('      Cleaning tuning file..')
                                 with open(tuning_file, 'r') as tuning:
                                     lines, splits = tuning.readlines(), []
@@ -317,10 +320,10 @@ class MachineLog:
                                 
                                 for i, temp_tuning_file in enumerate(temp_tuning_files):
                                     if temp_tuning_file.__contains__('_temp_'):
-                                        if i==0:
-                                            tuning_file_df = pd.read_csv(temp_tuning_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
-                                        else:
-                                            tunings.insert(layer_id + 1, temp_tuning_file)
+                                        tunings.insert(layer_id + (i+1), temp_tuning_file)
+                                
+                                continue
+
                             try:
                                 tuning_file_df['TIME'] = pd.to_datetime(tuning_file_df['TIME'])
                                 tuning_file_df.index = tuning_file_df['TIME']
@@ -328,11 +331,15 @@ class MachineLog:
                                 tuning_file_df = tuning_file_df.loc[:, :'Y_POSITION(mm)']
                                 tuning_file_df['DOSE_PRIM(C)'] = charge_col
                                 tuning_file_df.drop(columns=['TIME'], inplace=True)
-                                tuning_file_df.drop(tuning_file_df[tuning_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)
+                                try:
+                                    tuning_file_df.drop(tuning_file_df[tuning_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)
+                                except:
+                                    pass
                                 tuning_file_df = tuning_file_df[tuning_file_df.groupby('SUBMAP_NUMBER')['SUBMAP_NUMBER'].transform('count') > 1]
                                 tuning_file_df.drop(columns=['X_WIDTH(mm)', 'Y_WIDTH(mm)'], inplace=True)
                             except KeyError:
                                 print(f'''\n  /!\ Key error occured while handling '{tuning_file}' (layer {str(layer_id).zfill(2)}), continuing..''')
+                                no_exceptions = False
                                 layer_exceptions.append(layer_id)
                                 continue
 
@@ -384,7 +391,7 @@ class MachineLog:
                             to_do_tunings.append(tuning_file_df)
                     
                     for i in range(len(to_do_tunings)):  # in case of multiple layer parts: enable continuous spot indexing
-                        if i > 0:  
+                        if i > 0:
                             to_do_tunings[i]['SPOT_ID'] += (to_do_tunings[i - 1]['SPOT_ID'].max() + 1)
                     for j in range(len(to_do_layers)):
                         if j > 0:
@@ -399,6 +406,7 @@ class MachineLog:
                         layer_df['FRACTION_ID'] = fraction_id
                         # layer_df['PATIENT_ID'] = self.patient_id
                         layer_df.drop(columns=['SUBMAP_NUMBER'], inplace=True)
+                        layer_df = layer_df[~layer_df.index.duplicated(keep='first')]
                     else:
                         print(f'  /!\ No record found for layer-ID {layer_id} in beam {beam_id}, continuing..')
                         continue
@@ -412,6 +420,7 @@ class MachineLog:
                         tuning_df['FRACTION_ID'] = fraction_id
                         # tuning_df['PATIENT_ID'] = self.patient_id
                         tuning_df.drop(columns=['SUBMAP_NUMBER'], inplace=True)
+                        tuning_df = tuning_df[~tuning_df.index.duplicated(keep='first')]
                     else:
                         print(f'  /!\ No tunings found for layer-ID {layer_id} and beam {beam_id}, continuing..')
                         continue
@@ -835,36 +844,6 @@ class MachineLog:
         self.patient_delta_df['UNIQUE_INDEX'] = np.nan
         self.patient_delta_df.index = self.patient_delta_df['UNIQUE_INDEX']
         self.patient_delta_df = self.patient_delta_df.iloc[0:0]  # empty deltaframe
-
-        # find corresponding plan dicoms
-        # beam_list = [str(i) for i in self.patient_record_df['BEAM_ID'].drop_duplicates()]
-        # beam_dcm_dict = {id:[] for id in beam_list}
-
-        # print('\nTrying to auto-locate patient plan dicoms..')  # find corresponding plan dicoms
-        # for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
-        #     for fname in filenames:
-        #         if fname.__contains__('RP') and fname.endswith('.dcm') and not fname.__contains__('log'):
-        #             ds = pydicom.read_file(os.path.join(path, fname))
-        #             for i, dcm_beam in enumerate(ds.IonBeamSequence):
-        #                 if float(dcm_beam.IonControlPointSequence[0].GantryAngle) in self.patient_record_df['GANTRY_ANGLE'].drop_duplicates().to_list():
-        #                     if dcm_beam.BeamName in beam_list:
-        #                         beam_dcm_dict[dcm_beam.BeamName].append(os.path.join(path, fname))
-        #                     if dcm_beam.BeamDescription in beam_list:
-        #                         beam_dcm_dict[dcm_beam.BeamDescription].append(os.path.join(path, fname))
-        
-        # valid_beams = 0
-        # invalid_keys = []
-        # for key in beam_dcm_dict:
-        #     if beam_dcm_dict[key] == []:
-        #         print(f'''  /!\ Beam-ID '{key}' not found in patient dicoms''')
-        #         invalid_keys.append(key)
-        #     else:
-        #         valid_beams += 1
-        
-        # for key in invalid_keys:
-        #     del beam_dcm_dict[key]
-        
-        # print(f'{valid_beams}/{len(beam_list)} recorded beams found in patient dicoms')
     	
         to_concat, unique_index = [], 0
         for f, fx_id in enumerate(self.patient_record_df['FRACTION_ID'].drop_duplicates()):
@@ -1342,7 +1321,7 @@ class MachineLog:
             ds = pydicom.read_file(plan_dcm)
             for i, (beam_id, plan_beam) in enumerate(zip(beam_list, ds.IonBeamSequence)):
                 beam_df = target_record.loc[target_record['BEAM_ID'] == beam_id]
-                # sorting_dict = self.spot_sorter(fx_id, beam_id)
+                sorting_dict = self.spot_sorter(fx_id, beam_id)
                 total_layers = beam_df['TOTAL_LAYERS'][0]
                 cumulative_mu = 0
                 for layer_id in target_record.loc[target_record['BEAM_ID'] == beam_id]['LAYER_ID'].drop_duplicates():
@@ -1357,9 +1336,9 @@ class MachineLog:
                     # print(len(sorting_dict[layer_id]), len(layer_xy))  # inclusion of tuning spot breaks sorting keys + list shapes different (tuple vs. series)
                     # sorted_xy = [layer_xy[sorting_dict[layer_id][x]] for x in range(len(layer_xy))]
                     # sorted_mu = [layer_mu[sorting_dict[layer_id][i]] for i in range(total_layers)]
-                    n_spots = len(layer_mu)
+                    n_log_spots = len(layer_mu)
 
-                    plan_beam.IonControlPointSequence[layer_id * 2].NumberOfScanSpotPositions = plan_beam.IonControlPointSequence[layer_id * 2 + 1].NumberOfScanSpotPositions = n_spots
+                    plan_beam.IonControlPointSequence[layer_id * 2].NumberOfScanSpotPositions = plan_beam.IonControlPointSequence[layer_id * 2 + 1].NumberOfScanSpotPositions = n_log_spots
                     plan_beam.NumberOfControlPoints = total_layers * 2
 
                     if mode == 'all':
@@ -1445,4 +1424,3 @@ if __name__ == '__main__':
 
 else:
     print('>> Module', __name__, 'loaded')
-    
