@@ -1325,25 +1325,28 @@ class MachineLog:
                 total_layers = beam_df['TOTAL_LAYERS'][0]
                 cumulative_mu = 0
                 for layer_id in target_record.loc[target_record['BEAM_ID'] == beam_id]['LAYER_ID'].drop_duplicates():
-                    layer_df = pd.concat([target_record.loc[(target_record['BEAM_ID'] == beam_id) & (target_record['LAYER_ID'] == layer_id)], target_tuning.loc[(target_tuning['BEAM_ID'] == beam_id) & (target_tuning['LAYER_ID'] == layer_id)]])
-                    layer_xy, layer_mu = [], []
+                    layer_df = target_record.loc[(target_record['BEAM_ID'] == beam_id) & (target_record['LAYER_ID'] == layer_id)]
+                    tuning_df = target_tuning.loc[(target_tuning['BEAM_ID'] == beam_id) & (target_tuning['LAYER_ID'] == layer_id)]
+                    layer_xy, layer_mu, tuning_xy, tuning_mu = [], [], [], []
                     layer_energy = layer_df['LAYER_ENERGY(MeV)'].drop_duplicates().mean()
-                    for spot in range(len(layer_df['X_POSITION(mm)'].to_list())):
-                        layer_xy.append(layer_df['X_POSITION(mm)'][spot])
-                        layer_xy.append(layer_df['Y_POSITION(mm)'][spot])
-                        layer_mu.append(layer_df['MU'][spot])
+                    for log_spot in range(len(layer_df['X_POSITION(mm)'].to_list())):
+                        layer_xy.append(layer_df['X_POSITION(mm)'][log_spot])
+                        layer_xy.append(layer_df['Y_POSITION(mm)'][log_spot])
+                        layer_mu.append(layer_df['MU'][log_spot])
+                    for tune_spot in range(len(tuning_df['X_POSITION(mm)'].to_list())):
+                        tuning_xy.append(tuning_df['X_POSITION(mm)'][tune_spot])
+                        tuning_xy.append(tuning_df['Y_POSITION(mm)'][tune_spot])
+                        tuning_mu.append(tuning_df['MU'][tune_spot])
                     
-                    # print(len(sorting_dict[layer_id]), len(layer_xy))  # inclusion of tuning spot breaks sorting keys + list shapes different (tuple vs. series)
-                    # sorted_xy = [layer_xy[sorting_dict[layer_id][x]] for x in range(len(layer_xy))]
-                    # sorted_mu = [layer_mu[sorting_dict[layer_id][i]] for i in range(total_layers)]
                     n_log_spots = len(layer_mu)
-
-                    plan_beam.IonControlPointSequence[layer_id * 2].NumberOfScanSpotPositions = plan_beam.IonControlPointSequence[layer_id * 2 + 1].NumberOfScanSpotPositions = n_log_spots
-                    plan_beam.NumberOfControlPoints = total_layers * 2
+                    n_plan_spots = plan_beam.IonControlPointSequence[layer_id * 2].NumberOfScanSpotPositions
 
                     if mode == 'all':
                         if layer_id == 0:
                             print(f'  Will overwrite planned positions and metersets for beam-iD {beam_id}..')
+                        
+                        plan_beam.IonControlPointSequence[layer_id * 2].NumberOfScanSpotPositions = plan_beam.IonControlPointSequence[layer_id * 2 + 1].NumberOfScanSpotPositions = n_log_spots
+                        plan_beam.NumberOfControlPoints = total_layers * 2
                         plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotPositionMap = plan_beam.IonControlPointSequence[layer_id * 2 + 1].ScanSpotPositionMap = layer_xy
                         plan_beam.IonControlPointSequence[layer_id * 2].CumulativeMetersetWeight = cumulative_mu
                         cumulative_mu += sum(layer_mu)
@@ -1351,6 +1354,12 @@ class MachineLog:
                         plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotMetersetWeights = layer_mu
                         plan_beam.IonControlPointSequence[layer_id * 2 + 1].ScanSpotMetersetWeights = [0.0 for _ in range(len(layer_mu))]
                         # plan_beam.IonControlPointSequence[layer_id * 2].NominalBeamEnergy = plan_beam.IonControlPointSequence[layer_id * 2 + 1].NominalBeamEnergy = layer_energy
+                    
+                    if mode == 'pos':
+                        pass
+
+                    if mode == 'mu':
+                        pass
                     
                     else:
                         if layer_id == 0:
