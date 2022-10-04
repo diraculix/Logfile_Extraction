@@ -529,7 +529,7 @@ class MachineLog:
         return plan_dcm, beam_ds
 
 
-    def spot_sorter(self, fraction_id, beam_id):
+    def spot_sorter(self, fraction_id, beam_id, mode='record'):
         to_be_sorted = self.patient_record_df.loc[(self.patient_record_df['FRACTION_ID'] == fraction_id) & (self.patient_record_df['BEAM_ID'] == beam_id)]
         n_layers = to_be_sorted['TOTAL_LAYERS'].iloc[0]
         sorting_dict = {lid:{} for lid in range(n_layers)}
@@ -566,14 +566,16 @@ class MachineLog:
                 log_xy_sorted[index] = log_xy[i]
 
             dropped = 0
-            for xy in log_xy_sorted:
+            for drop, xy in enumerate(log_xy_sorted):
                 if xy == (np.nan, np.nan):
                     log_xy_sorted.remove(xy)
+                    drop_id = drop
                     dropped += 1
             
             if dropped > 1:
                 print(f'Dropped {dropped} spots | fx-ID {fraction_id} | beam-ID {beam_id} | layer-ID {layer_id}')
                 plt.plot(*zip(*plan_xy), marker='x', ls='-', color='tab:blue', label='plan')
+                # plt.plot(*plan_xy[drop_id], marker='x', ls='-', color='black', label='omitted')
                 plt.plot(*zip(*log_xy), marker='o', ls='--', color='tab:grey', label='log')
                 plt.plot(*zip(*log_xy_sorted), marker='o', ls='-', color='black', label='sorted')
                 plt.legend()
@@ -581,7 +583,13 @@ class MachineLog:
                 print(f'  /!\ Log beam {beam_id} spots do not match plan beam {beam_ds.BeamName}')
                 return None
 
-            sorting_dict[layer_id] = {log_xy.index(log_xy[i]) : log_xy.index(log_xy_sorted[i]) for i in range(len(log_xy))}  # do not iterate over elements directly, index() fails in this case
+            if mode == 'tuning':
+                try:
+                    sorting_dict[layer_id] = drop_id
+                except:
+                    sorting_dict[layer_id] = None
+            else:
+                sorting_dict[layer_id] = {log_xy.index(log_xy[i]) : log_xy.index(log_xy_sorted[i]) for i in range(len(log_xy))}  # do not iterate over elements directly, index() fails in this case
 
         return sorting_dict       
         
@@ -1317,18 +1325,19 @@ class MachineLog:
             plan_dcm, beam_ds = self.dicom_finder(fx_id, beam_list[0])
             dcm_path = os.path.dirname(plan_dcm)
             
-            print('\nManipulating dicom..')
+            print(f'\nWriting RT plan for fraction-ID {fx_id}..')
             ds = pydicom.read_file(plan_dcm)
             for i, (beam_id, plan_beam) in enumerate(zip(beam_list, ds.IonBeamSequence)):
                 beam_df = target_record.loc[target_record['BEAM_ID'] == beam_id]
                 sorting_dict = self.spot_sorter(fx_id, beam_id)
+                tuning_ids = self.spot_sorter(fx_id, beam_id, mode='tuning')
                 total_layers = beam_df['TOTAL_LAYERS'][0]
                 cumulative_mu = 0
                 for layer_id in target_record.loc[target_record['BEAM_ID'] == beam_id]['LAYER_ID'].drop_duplicates():
                     layer_df = target_record.loc[(target_record['BEAM_ID'] == beam_id) & (target_record['LAYER_ID'] == layer_id)]
                     tuning_df = target_tuning.loc[(target_tuning['BEAM_ID'] == beam_id) & (target_tuning['LAYER_ID'] == layer_id)]
                     layer_xy, layer_mu, tuning_xy, tuning_mu = [], [], [], []
-                    layer_energy = layer_df['LAYER_ENERGY(MeV)'].drop_duplicates().mean()
+                    layer_energy = layer_df['LAYER_ENERGY(MeV)'].drop_duplicates().iloc[0]
                     for log_spot in range(len(layer_df['X_POSITION(mm)'].to_list())):
                         layer_xy.append(layer_df['X_POSITION(mm)'][log_spot])
                         layer_xy.append(layer_df['Y_POSITION(mm)'][log_spot])
@@ -1341,12 +1350,16 @@ class MachineLog:
                     n_log_spots = len(layer_mu)
                     n_plan_spots = plan_beam.IonControlPointSequence[layer_id * 2].NumberOfScanSpotPositions
 
-                    if mode == 'all':
+                    if mode == 'all':  # but energy
                         if layer_id == 0:
-                            print(f'  Will overwrite planned positions and metersets for beam-iD {beam_id}..')
+                            print(f'  Will overwrite planned spot positions and metersets for beam-iD {beam_id}..')
                         
+                        # combine record and tuning spots
+                        layer_xy += tuning_xy
+                        layer_mu += tuning_mu
+                        n_log_spots = len(layer_mu)
+
                         plan_beam.IonControlPointSequence[layer_id * 2].NumberOfScanSpotPositions = plan_beam.IonControlPointSequence[layer_id * 2 + 1].NumberOfScanSpotPositions = n_log_spots
-                        plan_beam.NumberOfControlPoints = total_layers * 2
                         plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotPositionMap = plan_beam.IonControlPointSequence[layer_id * 2 + 1].ScanSpotPositionMap = layer_xy
                         plan_beam.IonControlPointSequence[layer_id * 2].CumulativeMetersetWeight = cumulative_mu
                         cumulative_mu += sum(layer_mu)
@@ -1356,10 +1369,43 @@ class MachineLog:
                         # plan_beam.IonControlPointSequence[layer_id * 2].NominalBeamEnergy = plan_beam.IonControlPointSequence[layer_id * 2 + 1].NominalBeamEnergy = layer_energy
                     
                     if mode == 'pos':
-                        pass
+                        if layer_id == 0:
+                            print(f'  Will overwrite only planned spot positions for beam-iD {beam_id}..')
+
+                        record_xy_tuples = [(layer_xy[i], layer_xy[i + 1]) for i in range(len(layer_xy)) if i % 2 == 0]
+                        xy_sorted = [record_xy_tuples[sorting_dict[layer_id][i]] for i in range(len(record_xy_tuples))]
+                        
+
+                        if n_log_spots < n_plan_spots:  # tuning spot replaces one planned spot, map it to closest plan spot
+                            tuning_xy_tuples = [np.array((tuning_xy[i], tuning_xy[i + 1])) for i in range(len(tuning_xy)) if i % 2 == 0]
+                            avg_tuning_pos = sum(tuning_xy_tuples) / len(tuning_xy_tuples)
+                            xy_sorted.insert(tuning_ids[layer_id], avg_tuning_pos)                            
+                        
+                        if n_log_spots > n_plan_spots:
+                            print(f'  /!\ Critical: More spots recorded than planned in layer-ID {layer_id} ({n_log_spots} vs. {n_plan_spots}), skipping this..')
+                            continue
+
+                        layer_xy = []
+                        for tup in xy_sorted:
+                            layer_xy.append(tup[0])
+                            layer_xy.append(tup[1])
+                        
+                        plan_beam.IonControlPointSequence[layer_id * 2].NumberOfScanSpotPositions = n_log_spots
+                        plan_beam.IonControlPointSequence[layer_id * 2 + 1].NumberOfScanSpotPositions = n_log_spots
+                        plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotPositionMap = layer_xy
+                        plan_beam.IonControlPointSequence[layer_id * 2 + 1].ScanSpotPositionMap = layer_xy
+
 
                     if mode == 'mu':
-                        pass
+                        if n_log_spots == n_plan_spots:  # tuning spot does not replace any planned spot, ignore it
+                            pass
+
+                        elif n_log_spots < n_plan_spots:  # tuning spot replaces one planned spot, map it to closest plan spot
+                            pass
+                        
+                        else:
+                            print(f'  /!\ Critical: More spots recorded than planned in layer-ID {layer_id} ({n_log_spots} vs. {n_plan_spots})')
+                            print(f'      Skipping beam-ID {beam_id}')
                     
                     else:
                         if layer_id == 0:
@@ -1389,10 +1435,13 @@ class MachineLog:
                         # plt.ylabel('Log MU')
                         # plt.legend()
                         # plt.show()
-
-                ds.FractionGroupSequence[0].ReferencedBeamSequence[i].BeamMeterset = cumulative_mu
-                ds.FractionGroupSequence[0].NumberOfFractionsPlanned = 1
-                plan_beam.FinalCumulativeMetersetWeight = cumulative_mu
+                        return None
+                
+                if mode == 'all' or mode == 'mu':
+                    ds.FractionGroupSequence[0].ReferencedBeamSequence[i].BeamMeterset = cumulative_mu
+                    plan_beam.FinalCumulativeMetersetWeight = cumulative_mu
+                
+                plan_beam.NumberOfControlPoints = total_layers * 2
                 
                 if len(plan_beam.IonControlPointSequence) > 2 * total_layers:
                     diff = len(plan_beam.IonControlPointSequence) - 2 * total_layers
@@ -1401,6 +1450,7 @@ class MachineLog:
                 
                 ds.IonBeamSequence[i] = plan_beam
             
+            ds.FractionGroupSequence[0].NumberOfFractionsPlanned = 1
             sop_uid = str(ds.SOPInstanceUID).split('.')
             sop_uid[-1] = '99999'
             new_sop_uid = '.'.join(sop_uid)
@@ -1419,13 +1469,13 @@ class MachineLog:
 
 if __name__ == '__main__':
     log = MachineLog()
-    log.prepare_dataframe()
+    # log.prepare_dataframe()
     # log.plot_beam_layers()    
     # log.plot_spot_statistics()
-    log.prepare_deltaframe()
+    # log.prepare_deltaframe()
     # log.delta_dependencies()
     # log.dicom_finder('20200604', '07', True)
-    # log.plan_creator(fraction='last', mode='all')
+    log.plan_creator(fraction='last', mode='pos')
     # log.beam_timings()
     # log.delta_correlation_matrix()
     # sorting_dict = log.spot_sorter(fraction_id=log.fraction_list[0], beam_id=log.patient_record_df['BEAM_ID'].iloc[0])
