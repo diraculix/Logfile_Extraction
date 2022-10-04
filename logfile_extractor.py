@@ -1329,8 +1329,10 @@ class MachineLog:
             ds = pydicom.read_file(plan_dcm)
             for i, (beam_id, plan_beam) in enumerate(zip(beam_list, ds.IonBeamSequence)):
                 beam_df = target_record.loc[target_record['BEAM_ID'] == beam_id]
-                sorting_dict = self.spot_sorter(fx_id, beam_id)
-                tuning_ids = self.spot_sorter(fx_id, beam_id, mode='tuning')
+                if not mode == 'all':
+                    sorting_dict = self.spot_sorter(fx_id, beam_id)
+                    tuning_dict = self.spot_sorter(fx_id, beam_id, mode='tuning')
+
                 total_layers = beam_df['TOTAL_LAYERS'][0]
                 cumulative_mu = 0
                 for layer_id in target_record.loc[target_record['BEAM_ID'] == beam_id]['LAYER_ID'].drop_duplicates():
@@ -1338,6 +1340,7 @@ class MachineLog:
                     tuning_df = target_tuning.loc[(target_tuning['BEAM_ID'] == beam_id) & (target_tuning['LAYER_ID'] == layer_id)]
                     layer_xy, layer_mu, tuning_xy, tuning_mu = [], [], [], []
                     layer_energy = layer_df['LAYER_ENERGY(MeV)'].drop_duplicates().iloc[0]
+                    plan_xy = plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotPositionMap
                     for log_spot in range(len(layer_df['X_POSITION(mm)'].to_list())):
                         layer_xy.append(layer_df['X_POSITION(mm)'][log_spot])
                         layer_xy.append(layer_df['Y_POSITION(mm)'][log_spot])
@@ -1350,7 +1353,7 @@ class MachineLog:
                     n_log_spots = len(layer_mu)
                     n_plan_spots = plan_beam.IonControlPointSequence[layer_id * 2].NumberOfScanSpotPositions
 
-                    if mode == 'all':  # but energy
+                    if mode == 'all':  # except energy
                         if layer_id == 0:
                             print(f'  Will overwrite planned spot positions and metersets for beam-iD {beam_id}..')
                         
@@ -1368,18 +1371,17 @@ class MachineLog:
                         plan_beam.IonControlPointSequence[layer_id * 2 + 1].ScanSpotMetersetWeights = [0.0 for _ in range(len(layer_mu))]
                         # plan_beam.IonControlPointSequence[layer_id * 2].NominalBeamEnergy = plan_beam.IonControlPointSequence[layer_id * 2 + 1].NominalBeamEnergy = layer_energy
                     
-                    if mode == 'pos':
+                    elif mode == 'pos':
                         if layer_id == 0:
                             print(f'  Will overwrite only planned spot positions for beam-iD {beam_id}..')
 
                         record_xy_tuples = [(layer_xy[i], layer_xy[i + 1]) for i in range(len(layer_xy)) if i % 2 == 0]
                         xy_sorted = [record_xy_tuples[sorting_dict[layer_id][i]] for i in range(len(record_xy_tuples))]
                         
-
                         if n_log_spots < n_plan_spots:  # tuning spot replaces one planned spot, map it to closest plan spot
                             tuning_xy_tuples = [np.array((tuning_xy[i], tuning_xy[i + 1])) for i in range(len(tuning_xy)) if i % 2 == 0]
                             avg_tuning_pos = sum(tuning_xy_tuples) / len(tuning_xy_tuples)
-                            xy_sorted.insert(tuning_ids[layer_id], avg_tuning_pos)                            
+                            xy_sorted.insert(tuning_dict[layer_id], avg_tuning_pos)                            
                         
                         if n_log_spots > n_plan_spots:
                             print(f'  /!\ Critical: More spots recorded than planned in layer-ID {layer_id} ({n_log_spots} vs. {n_plan_spots}), skipping this..')
@@ -1390,51 +1392,40 @@ class MachineLog:
                             layer_xy.append(tup[0])
                             layer_xy.append(tup[1])
                         
-                        plan_beam.IonControlPointSequence[layer_id * 2].NumberOfScanSpotPositions = n_log_spots
-                        plan_beam.IonControlPointSequence[layer_id * 2 + 1].NumberOfScanSpotPositions = n_log_spots
                         plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotPositionMap = layer_xy
                         plan_beam.IonControlPointSequence[layer_id * 2 + 1].ScanSpotPositionMap = layer_xy
 
-
-                    if mode == 'mu':
-                        if n_log_spots == n_plan_spots:  # tuning spot does not replace any planned spot, ignore it
-                            pass
-
-                        elif n_log_spots < n_plan_spots:  # tuning spot replaces one planned spot, map it to closest plan spot
-                            pass
+                    elif mode == 'mu':
+                        if layer_id == 0:
+                            print(f'  Will overwrite only planned spot metersets for beam-iD {beam_id}..')
                         
-                        else:
-                            print(f'  /!\ Critical: More spots recorded than planned in layer-ID {layer_id} ({n_log_spots} vs. {n_plan_spots})')
-                            print(f'      Skipping beam-ID {beam_id}')
+                        plan_xy_tuples = [np.array((plan_xy[i], plan_xy[i + 1])) for i in range(len(plan_xy)) if i % 2 == 0]
+                        mu_sorted = [layer_mu[sorting_dict[layer_id][i]] for i in range(len(layer_mu))]
+                        cumulative_tuning_mu = sum(tuning_mu)
+
+                        if n_log_spots == n_plan_spots:
+                            tuning_xy_tuples = [np.array((tuning_xy[i], tuning_xy[i + 1])) for i in range(len(tuning_xy)) if i % 2 == 0]
+                            for t, tuning_spot in enumerate(tuning_xy_tuples):
+                                shifts = [tuning_spot - plan_spot for plan_spot in plan_xy_tuples]
+                                dists = [shift.dot(shift) for shift in shifts]
+                                closest = dists.index(min(dists))
+                                mu_sorted[closest] += tuning_mu[t]
+
+                        if n_log_spots < n_plan_spots:  # tuning spot replaces one planned spot, map it to closest plan spot
+                            mu_sorted.insert(tuning_dict[layer_id], cumulative_tuning_mu)
+                        
+                        if n_log_spots > n_plan_spots:
+                            print(f'  /!\ Critical: More spots recorded than planned in layer-ID {layer_id} ({n_log_spots} vs. {n_plan_spots}), skipping this..')
+                            continue
+
+                        plan_beam.IonControlPointSequence[layer_id * 2].CumulativeMetersetWeight = cumulative_mu
+                        cumulative_mu += sum(mu_sorted)
+                        plan_beam.IonControlPointSequence[layer_id * 2 + 1].CumulativeMetersetWeight = cumulative_mu
+                        plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotMetersetWeights = mu_sorted
+                        plan_beam.IonControlPointSequence[layer_id * 2 + 1].ScanSpotMetersetWeights = [0.0 for _ in range(len(mu_sorted))]
                     
                     else:
-                        if layer_id == 0:
-                            print(f'  Sorting spots for beam-ID {beam_id}..')
-                        plan_spotmap = plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotPositionMap
-                        plan_x, plan_y = [], []
-                        new_plan_x, new_plan_y, new_plan_mu = [], [], []
-                        for i, spot in enumerate(plan_spotmap):
-                            if i % 2 == 0:
-                                plan_x.append(spot)
-                            else:
-                                plan_y.append(spot)
-
-                        plan_xy = [tup for tup in zip(plan_x, plan_y)]
-                        plan_mu = plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotMetersetWeights
-                        log_xy = [tup for tup in zip(layer_df['X_POSITION(mm)'].to_list(), layer_df['Y_POSITION(mm)'].to_list())]
-                        for i, plan_spot in enumerate(plan_xy):
-                            shifts = [np.array(plan_spot) - np.array(log_spot) for log_spot in log_xy]
-                            dists = [np.abs((shift).dot(shift)) for shift in shifts]
-                            index = dists.index(min(dists))
-                            new_plan_x.append(plan_xy[index][0]), new_plan_y.append(plan_xy[index][1]), new_plan_mu.append(plan_mu[index])
-                        
-                        # plt.plot(*zip(*log_xy), label='log', linestyle='-', marker='o')
-                        # plt.plot(new_plan_x, new_plan_y, label='plan', linestyle='-', marker='o')
-                        # plt.scatter(plan_mu, new_plan_mu, label='MU')
-                        # plt.xlabel('Plan MU')
-                        # plt.ylabel('Log MU')
-                        # plt.legend()
-                        # plt.show()
+                        print(f'/x\ Mode {mode} not supported, exiting..')
                         return None
                 
                 if mode == 'all' or mode == 'mu':
@@ -1475,7 +1466,10 @@ if __name__ == '__main__':
     # log.prepare_deltaframe()
     # log.delta_dependencies()
     # log.dicom_finder('20200604', '07', True)
-    log.plan_creator(fraction='last', mode='pos')
+    for mode in ['all', 'pos', 'mu']:
+        log.plan_creator(fraction=log.fraction_list[0], mode=mode)
+        log.plan_creator(fraction=log.fraction_list[-1], mode=mode)
+    # log.plan_creator(fraction='last', mode='all')
     # log.beam_timings()
     # log.delta_correlation_matrix()
     # sorting_dict = log.spot_sorter(fraction_id=log.fraction_list[0], beam_id=log.patient_record_df['BEAM_ID'].iloc[0])
