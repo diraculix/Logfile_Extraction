@@ -23,12 +23,12 @@ except:
     output_dir = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\output'
 
 
-class MachineLog:
-    def __init__(self):
+class MachineLog():
+    def __init__(self, root_dir):
         valid_dir = False
         while not valid_dir:
             root = Tk()
-            self.logfile_dir = filedialog.askdirectory(title='Select logfile root directory')  # open logfile root directory, which contains one dir per fraction
+            self.logfile_dir = root_dir  # open logfile root directory, which contains one dir per fraction
             root.destroy()
             if self.logfile_dir == '':
                 sys.exit('/x\ No directory selected, exiting..')
@@ -106,13 +106,29 @@ class MachineLog:
         os.chdir(self.logfile_dir)
     
 
-    def prepare_dataframe(self):  # disabling sparse will keep every 250us entry, results in larger dataframes (deprecated)
+    def prepare_dataframe(self):
         if not self.patient_record_df.empty and not self.patient_tuning_df.empty:  # function call obsolete if record/tuning dataframes exist, re-init possible
             print('Already read existing patient record/tuning dataframes:')
             print(f'  {self.record_df_name}\n  {self.tuning_df_name}\n')
             re_init = input('Re-initialize patient dataframe [y/n]? ')
             if re_init != 'y':
                 return None
+        
+        # helper functions for dataframe column operations
+        def map_x_pos(y_pos_arr):
+            return np.multiply(np.subtract(y_pos_arr, ic_offset_x), np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
+        
+        def map_y_pos(x_pos_arr):
+            return np.multiply(np.subtract(x_pos_arr, ic_offset_y), np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
+        
+        def map_x_wid(y_wid_arr):
+            return np.multiply(y_wid_arr, np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
+        
+        def map_y_wid(x_wid_arr):
+            return np.multiply(x_wid_arr, np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
+        
+        def map_mu(charge_arr):
+            return np.divide(np.multiply(charge_arr, correction_factor), charge_per_mu)
 
         print(f'Initializing dataframe for patient-ID {self.patient_id}..')
         self.patient_record_df, self.patient_tuning_df = pd.DataFrame(), pd.DataFrame()  # overwrite stored df's
@@ -236,7 +252,7 @@ class MachineLog:
                                 except:
                                     pass
                                 record_file_df = record_file_df[record_file_df.groupby('SUBMAP_NUMBER')['SUBMAP_NUMBER'].transform('count') > 1]  # drop all rows without plan-relevant data
-                                record_file_df.drop(columns=['X_WIDTH(mm)', 'Y_WIDTH(mm)'], inplace=True)  # not needed for plan, uniform spot sizes in beam model
+                                # record_file_df.drop(columns=['X_WIDTH(mm)', 'Y_WIDTH(mm)'], inplace=True)  # not needed for plan, uniform spot sizes in beam model
                             
                             except:  # unlikely event of unusable information in log-file (possible if split into parts)
                                 no_exceptions = False
@@ -276,13 +292,23 @@ class MachineLog:
                             record_file_df['LAYER_ENERGY(MeV)'] = layer_energy
                             
                             # coordinate system transform iba <-> raystation (x <-> y)
-                            new_x_series = (pd.Series(record_file_df['Y_POSITION(mm)']) - ic_offset_x) * sad_x / (sad_x - ictoiso_x) 
-                            new_y_series = (pd.Series(record_file_df['X_POSITION(mm)']) - ic_offset_y) * sad_y / (sad_y - ictoiso_y)
-                            record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)'] = new_x_series, new_y_series
-                            del new_x_series, new_y_series
+                            record_file_df['X_POS'], record_file_df['Y_POS'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
+                            record_file_df['X_WID'], record_file_df['Y_WID'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
+                            record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS']].apply(map_x_pos)
+                            record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS']].apply(map_y_pos)
+                            record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID']].apply(map_x_wid)
+                            record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID']].apply(map_y_wid)
+                            record_file_df.drop(columns=['X_POS', 'Y_POS', 'X_WID', 'Y_WID'], inplace=True)
+                            record_file_df['SQDIST_TO_ISO(mm)'] = np.square(record_file_df['X_POSITION(mm)']) + np.square(record_file_df['Y_POSITION(mm)'])
+                            # new_x_series = (pd.Series(record_file_df['Y_POSITION(mm)']) - ic_offset_x) * sad_x / (sad_x - ictoiso_x) 
+                            # new_y_series = (pd.Series(record_file_df['X_POSITION(mm)']) - ic_offset_y) * sad_y / (sad_y - ictoiso_y)
+                            # new_x_widths = (pd.Series(record_file_df['Y_WIDTH(mm)']) - ic_offset_x) * sad_x / (sad_x - ictoiso_x) 
+                            # new_y_widths = (pd.Series(record_file_df['X_WIDTH(mm)']) - ic_offset_y) * sad_y / (sad_y - ictoiso_y)
+                            # record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)'] = new_x_series, new_y_series
+                            # del new_x_series, new_y_series, new_x_widths, new_y_widths
                         
                             # charge to MU conversion using correction factor
-                            record_file_df['MU'] = record_file_df['ACC_CHARGE(C)'] * correction_factor / charge_per_mu
+                            record_file_df['MU'] = record_file_df[['ACC_CHARGE(C)']].apply(map_mu)
                             record_file_df.drop(columns=['ACC_CHARGE(C)'], inplace=True)
                             record_file_df.reindex()  # make sure modified layer df is consistent with indexing
                             to_do_layers.append(record_file_df)
@@ -336,7 +362,7 @@ class MachineLog:
                                 except:
                                     pass
                                 tuning_file_df = tuning_file_df[tuning_file_df.groupby('SUBMAP_NUMBER')['SUBMAP_NUMBER'].transform('count') > 1]
-                                tuning_file_df.drop(columns=['X_WIDTH(mm)', 'Y_WIDTH(mm)'], inplace=True)
+                                # tuning_file_df.drop(columns=['X_WIDTH(mm)', 'Y_WIDTH(mm)'], inplace=True)
                             except KeyError:
                                 print(f'''\n  /!\ Key error occured while handling '{tuning_file}' (layer {str(layer_id).zfill(2)}), continuing..''')
                                 no_exceptions = False
@@ -379,12 +405,19 @@ class MachineLog:
                             layer_energy = np.exp(np.polyval(iba_gtr2_poly, np.log(range_at_iso)))  # (MeV)
                             tuning_file_df['LAYER_ENERGY(MeV)'] = layer_energy
 
-                            new_x_series = (pd.Series(tuning_file_df['Y_POSITION(mm)']) - ic_offset_x) * sad_x / (sad_x - ictoiso_x)  # coordinate system transform iba <-> raystation (x <-> y)
-                            new_y_series = (pd.Series(tuning_file_df['X_POSITION(mm)']) - ic_offset_y) * sad_y / (sad_y - ictoiso_y)
-                            tuning_file_df['X_POSITION(mm)'], tuning_file_df['Y_POSITION(mm)'] = new_x_series, new_y_series
-                            del new_x_series, new_y_series            
+                            tuning_file_df['X_POS'], tuning_file_df['Y_POS'] = tuning_file_df['X_POSITION(mm)'], tuning_file_df['Y_POSITION(mm)']
+                            tuning_file_df['X_WID'], tuning_file_df['Y_WID'] = tuning_file_df['X_WIDTH(mm)'], tuning_file_df['Y_WIDTH(mm)']
+                            tuning_file_df['X_POSITION(mm)'] = tuning_file_df[['Y_POS']].apply(map_x_pos)
+                            tuning_file_df['Y_POSITION(mm)'] = tuning_file_df[['X_POS']].apply(map_y_pos)
+                            tuning_file_df['X_WIDTH(mm)'] = tuning_file_df[['Y_WID']].apply(map_x_wid)
+                            tuning_file_df['Y_WIDTH(mm)'] = tuning_file_df[['X_WID']].apply(map_y_wid)
+                            tuning_file_df.drop(columns=['X_POS', 'Y_POS', 'X_WID', 'Y_WID'], inplace=True)
+                            # new_x_series = (pd.Series(tuning_file_df['Y_POSITION(mm)']) - ic_offset_x) * sad_x / (sad_x - ictoiso_x)  # coordinate system transform iba <-> raystation (x <-> y)
+                            # new_y_series = (pd.Series(tuning_file_df['X_POSITION(mm)']) - ic_offset_y) * sad_y / (sad_y - ictoiso_y)
+                            # tuning_file_df['X_POSITION(mm)'], tuning_file_df['Y_POSITION(mm)'] = new_x_series, new_y_series
+                            # del new_x_series, new_y_series            
                             
-                            tuning_file_df['MU'] = tuning_file_df['ACC_CHARGE(C)'] * correction_factor / charge_per_mu
+                            tuning_file_df['MU'] = tuning_file_df[['ACC_CHARGE(C)']].apply(map_mu)
                             tuning_file_df.drop(columns=['ACC_CHARGE(C)'], inplace=True)
 
                             tuning_file_df.reindex()
@@ -403,6 +436,8 @@ class MachineLog:
                         layer_df['TOTAL_LAYERS'] = num_layers
                         layer_df['BEAM_ID'] = beam_id
                         layer_df['GANTRY_ANGLE'] = gantry_angle
+                        layer_df['TEMPERATURE(K)'] = temperature
+                        layer_df['PRESSURE(hPa)'] = pressure
                         layer_df['FRACTION_ID'] = fraction_id
                         # layer_df['PATIENT_ID'] = self.patient_id
                         layer_df.drop(columns=['SUBMAP_NUMBER'], inplace=True)
@@ -417,6 +452,8 @@ class MachineLog:
                         tuning_df['TOTAL_LAYERS'] = num_layers
                         tuning_df['BEAM_ID'] = beam_id
                         tuning_df['GANTRY_ANGLE'] = gantry_angle
+                        tuning_df['PRESSURE(hPa)'] = pressure
+                        tuning_df['FRACTION_ID'] = fraction_id
                         tuning_df['FRACTION_ID'] = fraction_id
                         # tuning_df['PATIENT_ID'] = self.patient_id
                         tuning_df.drop(columns=['SUBMAP_NUMBER'], inplace=True)
@@ -857,8 +894,13 @@ class MachineLog:
         for f, fx_id in enumerate(self.patient_record_df['FRACTION_ID'].drop_duplicates()):
             fraction_df = self.patient_record_df.loc[self.patient_record_df['FRACTION_ID'] == fx_id]
             for beam_id in fraction_df['BEAM_ID'].drop_duplicates():
-                plan_dcm, beam_ds = self.dicom_finder(fraction_id=fx_id, beam_id=beam_id, verbose=False)
-                beam_df = self.patient_record_df.loc[(self.patient_record_df['FRACTION_ID'] == fx_id)]
+                try:    
+                    plan_dcm, beam_ds = self.dicom_finder(fraction_id=fx_id, beam_id=beam_id, verbose=False)
+                    beam_df = self.patient_record_df.loc[(self.patient_record_df['FRACTION_ID'] == fx_id)]
+                except:
+                    print(f'  /!\ No plan dicom found for beam-ID {beam_id} in fraction-ID {fx_id}, proceeding..')
+                    continue
+
                 for bid in beam_df['BEAM_ID'].drop_duplicates():
                     if str(bid).__contains__(str(beam_id)) or str(beam_id).__contains__(str(bid)):
                         beam_df = beam_df.loc[beam_df['BEAM_ID'] == bid]
@@ -916,11 +958,11 @@ class MachineLog:
                     
                     if dropped > 1:
                         print(f'Dropped {dropped} spots | fx-ID {fx_id} | beam-ID {beam_id} | layer-ID {layer_id}')
-                        plt.plot(*zip(*plan_xy), marker='x', ls='-', color='tab:blue', label='plan')
-                        plt.plot(*zip(*log_xy), marker='o', ls='--', color='tab:grey', label='log')
-                        plt.plot(*zip(*log_xy_sorted), marker='o', ls='-', color='black', label='sorted')
-                        plt.legend()
-                        plt.show()
+                        # plt.plot(*zip(*plan_xy), marker='x', ls='-', color='tab:blue', label='plan')
+                        # plt.plot(*zip(*log_xy), marker='o', ls='--', color='tab:grey', label='log')
+                        # plt.plot(*zip(*log_xy_sorted), marker='o', ls='-', color='black', label='sorted')
+                        # plt.legend()
+                        # plt.show()
                         print(f'  /!\ Log beam {beam_id} spots do not match plan beam {beam_ds.BeamName}')
 
                     # generate new dataframe 
@@ -1459,16 +1501,30 @@ class MachineLog:
                 
 
 if __name__ == '__main__':
-    log = MachineLog()
+    # log = MachineLog(filedialog.askdirectory(title='Select logfile root directory'))
+    root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction'
+    patients = {}
+    print('Searching for log-file directories with existent plans..')
+    for root, dir, files in os.walk(root_dir):
+        if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
+            patient_id = root.split('\\')[-1]
+            print(f'''  Found {patient_id}''')
+            patients[patient_id] = os.path.join(root, 'Logfiles')
+
+    for patiend_id, log_dir in patients.items():
+        print(f'\n...STARTING PATIENT {patiend_id}...\n') 
+        log = MachineLog(log_dir)
+        log.prepare_dataframe()
+        log.prepare_deltaframe()
+        
     # log.prepare_dataframe()
     # log.plot_beam_layers()    
     # log.plot_spot_statistics()
     # log.prepare_deltaframe()
     # log.delta_dependencies()
     # log.dicom_finder('20200604', '07', True)
-    for mode in ['all', 'pos', 'mu']:
-        log.plan_creator(fraction=log.fraction_list[0], mode=mode)
-        log.plan_creator(fraction=log.fraction_list[-1], mode=mode)
+    # for mode in ['all', 'pos', 'mu']:
+    #     log.plan_creator(fraction='last', mode=mode)
     # log.plan_creator(fraction='last', mode='all')
     # log.beam_timings()
     # log.delta_correlation_matrix()
