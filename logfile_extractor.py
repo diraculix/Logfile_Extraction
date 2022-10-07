@@ -82,7 +82,7 @@ class MachineLog():
                 with open(beam_file, 'r') as beam_file:
                     for line in beam_file.readlines():
                             if line.__contains__('PatientId'):
-                                self.patient_id = int(line.split('>')[1].split('<')[0])
+                                self.patient_id = line.split('>')[1].split('<')[0]
         
         record_df_exists, tuning_df_exists = False, False
         for dirpath, dirnames, filenames in os.walk(os.path.join(self.df_destination, '..')):  # sweep over root directory, read existing dataframes
@@ -99,9 +99,9 @@ class MachineLog():
                     tuning_df_exists = True
         
         if not record_df_exists or not tuning_df_exists:
-            print(f'''\nUnable to locate patient record/tuning dataframes for patient-ID {self.patient_id}. Calling prepare_dataframe()..''')
+            print(f'''\nUnable to locate patient record/tuning dataframes for patient-ID {self.patient_id}. Please run prepare_dataframe()..''')
             self.patient_record_df, self.patient_tuning_df = pd.DataFrame(), pd.DataFrame()
-            self.prepare_dataframe()
+            # self.prepare_dataframe()
         
         os.chdir(self.logfile_dir)
     
@@ -509,6 +509,231 @@ class MachineLog():
         self.patient_record_df = self.patient_record_df.astype(dtype={'BEAM_ID':str, 'FRACTION_ID':str})
         self.patient_tuning_df = self.patient_tuning_df.astype(dtype={'BEAM_ID':str, 'FRACTION_ID':str})
         print('Complete')
+
+    
+
+    def prepare_qa_dataframe(self):        
+            # allowed beam parameters
+            qa_energies = [100., 140., 165., 185., 205., 226.7]
+            qa_angles = np.linspace(0., 360., 8, endpoint=False)
+            qa_spots = 18
+
+            # helper functions for dataframe column operations
+            def map_x_pos(y_pos_arr):
+                return np.multiply(np.subtract(y_pos_arr, ic_offset_x), np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
+            
+            def map_y_pos(x_pos_arr):
+                return np.multiply(np.subtract(x_pos_arr, ic_offset_y), np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
+            
+            def map_x_wid(y_wid_arr):
+                return np.multiply(y_wid_arr, np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
+            
+            def map_y_wid(x_wid_arr):
+                return np.multiply(x_wid_arr, np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
+
+            self.qa_record_df = pd.DataFrame()  # overwrite stored df's
+            for fraction_no, fraction_id in enumerate(self.fraction_list):
+                num_beams = len(self.beam_list[fraction_no])
+                for beam_no, beam_id in enumerate(self.beam_list[fraction_no]):
+                    current_beam_path = os.path.join(self.logfile_dir, fraction_id, beam_id)
+                    os.chdir(current_beam_path)
+                    while len(os.listdir('.')) <= 3:
+                        try:
+                            os.chdir(os.listdir('.')[0])  # navigate through nested logfile dir structure (possibly risky)
+                        except OSError:
+                            print(f'  /!\ No directory to enter in {os.getcwd()}, staying here..')
+                            break
+
+                    map_records, record_specifs = [], []  # get file lists
+                    for file in os.listdir('.'):
+                        if file.__contains__('beam.'):
+                            beam_file = file
+                        elif file.__contains__('beam_config.'):
+                            beam_config = file
+                        elif file.__contains__('map_record') and file.__contains__('part') and not file.__contains__('temp'):
+                            map_records.append(file)
+                        elif file.__contains__('map_specif') and file.__contains__('part'):
+                            record_specifs.append(file)
+                        
+                    if len(map_records) == 0:
+                        raise LookupError('  /x\ No logfiles found!') 
+
+                    num_layers = max([int(fname.split('_')[2].split('_')[0]) + 1 for fname in map_records])
+
+                    with open(beam_file, 'r') as beam_file:  # draw beam specs from *_beam.csv
+                        for line in beam_file.readlines():
+                            if line.__contains__('GantryAngle'):
+                                gantry_angle = float(line.split('>')[1].split('<')[0])
+                            elif line.__contains__('pressure'):
+                                pressure = float(line.split(',')[-1])
+                            elif line.__contains__('temperature'):
+                                temperature = float(line.split(',')[-1])
+                            elif line.__contains__('doseCorrectionFactor'):
+                                chamber_correction = float(line.split(',')[-1])
+
+                        beam_file.close()
+                    
+                    if not gantry_angle in qa_angles:
+                        continue
+
+                    with open(beam_config, 'r') as beam_config:  # draw machine parameters from *beam_config.csv
+                        for line in beam_config.readlines():
+                            if line.__contains__('SAD parameter'):
+                                sad_x, sad_y = float(line.split(';')[-1].split(',')[1]), float(line.split(';')[-1].split(',')[0])  # coordinate system switch x <--> y
+                            elif line.__contains__('distanceFromIcToIsocenter'):
+                                ictoiso_x, ictoiso_y = float(line.split(';')[-1].split(',')[1]), float(line.split(';')[-1].split(',')[0])  # coordinate system switch x <--> y
+                            elif line.__contains__('Nozzle WET polynomial'):
+                                nozzle_wet_poly = [float(x) for x in line.split(';')[-1].split(',')]
+                    
+                    # Source: IBA Particle Therapy 08/22 (Jozef Bokor), universal nozzle WET polynomial coefficients
+                    iba_gtr2_poly = [0.001684756748152, -0.00490089228886989, 0.561372013469097, 3.46404838890297]
+                    
+                    layer_exceptions, finalized_layers= [], [self.qa_record_df]
+                    for layer_id in range(num_layers):
+                        to_do_layers = []
+                        no_exceptions = True
+                        for record_file in map_records:  # actual (processed) log-file extraction
+                            if int(record_file.split('_')[2].split('_')[0]) == layer_id:
+                                try:
+                                    record_file_df = pd.read_csv(record_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
+
+                                except:
+                                    print('  /!\ Read CSV error:', record_file)
+                                    print('      Cleaning record file..')
+                                    with open(record_file, 'r') as record:
+                                        lines, splits = record.readlines(), []
+                                        for nr, line in enumerate(lines):
+                                            if line.__contains__('beamline') and lines[nr - 1] in ['\n', '\r\n']:
+                                                splits.append(nr)
+                                        record.close()
+                                    
+                                    temp_record_files = []
+                                    for nr, split_at in enumerate(splits):
+                                        temp_record_name = record_file.split('.')[:-1]
+                                        temp_record_name.append(f'temp_{nr + 1}.csv')
+                                        temp_record_name = '_'.join(temp_record_name)
+                                        with open(temp_record_name, 'w+') as temp_record:
+                                            if nr == 0:
+                                                temp_record.writelines(lines[:splits[nr + 1]])
+                                            else:
+                                                try:
+                                                    temp_record.writelines(lines[split_at:splits[nr + 1]])
+                                                except:
+                                                    temp_record.writelines(lines[split_at:])
+                                            
+                                            temp_record_files.append(temp_record.name)
+                                            temp_record.close()
+                                    
+                                    for i, temp_record_file in enumerate(temp_record_files):
+                                        if temp_record_file.__contains__('_temp_'):
+                                            map_records.insert(layer_id + (i+1), temp_record_file)
+                                        
+                                    continue
+                                            
+                                try:
+                                    record_file_df['TIME'] = pd.to_datetime(record_file_df['TIME'])     # datetime index --> chronological order
+                                    record_file_df.index = record_file_df['TIME']                              
+                                    record_file_df = record_file_df.loc[:, :'Y_POSITION(mm)']           # slice dataframe, drop redundant columns
+                                    record_file_df.drop(columns=['TIME'], inplace=True)
+                                    try:
+                                        record_file_df.drop(record_file_df[record_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)
+                                    except:
+                                        pass
+                                    record_file_df = record_file_df[record_file_df.groupby('SUBMAP_NUMBER')['SUBMAP_NUMBER'].transform('count') > 1]  # drop all rows without plan-relevant data
+                                
+                                except:  # unlikely event of unusable information in log-file (possible if split into parts)
+                                    no_exceptions = False
+                                    layer_exceptions.append(layer_id)
+                                    continue
+                                
+                                record_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
+                                record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entries for each spot (most accurate)
+                                record_file_df = record_file_df.loc[(record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0)]  # drop redundant rows
+                                
+                                for specif_file in record_specifs:  # draw machine parameters from *map_specif*.csv
+                                    if int(specif_file.split('_')[2].split('_')[0]) == layer_id:
+                                        with open(specif_file, 'r') as specif_file:
+                                            lines = specif_file.readlines()
+                                            ic_offsets = lines[3]
+                                            ic_offset_x, ic_offset_y = float(ic_offsets.split(',')[3]), float(ic_offsets.split(',')[2])  # coordinate system switch x <--> y
+                                            range_at_degrader = float(lines[1].split(',')[1])
+                                
+                                # calculate energy at isocenter from range
+                                nozzle_wet = np.polyval(nozzle_wet_poly, range_at_degrader)  # [mm]
+                                range_at_iso = range_at_degrader - nozzle_wet
+                                layer_energy = np.exp(np.polyval(iba_gtr2_poly, np.log(range_at_iso)))  # [MeV]
+                                record_file_df['LAYER_ENERGY(MeV)'] = layer_energy
+
+                                if not np.round(layer_energy, 1) in qa_energies or not len(record_file_df['X_POSITION(mm)']) == qa_spots:
+                                    continue
+                                
+                                # coordinate system transform iba <-> raystation (x <-> y)
+                                record_file_df['X_POS'], record_file_df['Y_POS'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
+                                record_file_df['X_WID'], record_file_df['Y_WID'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
+                                record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS']].apply(map_x_pos)
+                                record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS']].apply(map_y_pos)
+                                record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID']].apply(map_x_wid)
+                                record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID']].apply(map_y_wid)
+                                record_file_df.drop(columns=['X_POS', 'Y_POS', 'X_WID', 'Y_WID'], inplace=True)
+                                record_file_df['DIST_TO_ISO(mm)'] = np.sqrt(np.square(record_file_df['X_POSITION(mm)']) + np.square(record_file_df['Y_POSITION(mm)']))
+                                record_file_df.reindex()  # make sure modified layer df is consistent with indexing
+                                to_do_layers.append(record_file_df)
+                        
+                        if len(to_do_layers) > 0:  # can be zero, if only one spot in layer and omitted by high-weighted tuning
+                            layer_df = pd.concat(to_do_layers)  # concatenate layers, assign additional columns
+                            layer_df['LAYER_ID'] = layer_id
+                            layer_df['TOTAL_LAYERS'] = num_layers
+                            layer_df['BEAM_ID'] = beam_id
+                            layer_df['GANTRY_ANGLE'] = gantry_angle
+                            layer_df['TEMPERATURE(K)'] = temperature
+                            layer_df['PRESSURE(hPa)'] = pressure
+                            layer_df.drop(columns=['SUBMAP_NUMBER'], inplace=True)
+                            layer_df = layer_df[~layer_df.index.duplicated(keep='first')]
+                        else:
+                            print(f'  /!\ No QA record found for layer-ID {layer_id} in beam {beam_id}, continuing..')
+                            continue
+                        
+                        del to_do_layers
+                        
+                        finalized_layers.append(layer_df)
+
+                        if no_exceptions:
+                            char = '#'
+                        else:
+                            char = '_'
+
+                    if beam_no == (num_beams - 1):  # progress visualization
+                        if no_exceptions:
+                            print('  ', '[' + (beam_no + 1) * char + (num_beams - beam_no - 1) * '-' + ']', end=f' Fraction {fraction_id} complete\n')
+                        else:    
+                            print('  ', '[' + (beam_no + 1) * char + (num_beams - beam_no - 1) * '-' + ']', end=f' Fraction {fraction_id} complete (empty dataframe exception in layer(s) {layer_exceptions}\n')
+                    else:
+                        print('  ', '[' + (beam_no + 1) * char + (num_beams - beam_no - 1) * '-' + ']', end=f' Beam {str(beam_no + 1).zfill(2)}/{str(num_beams).zfill(2)}\r')
+                    
+                    no_exceptions = True
+
+                    # remove temporary files
+                    for file in os.listdir('.'):
+                        if file.__contains__('temp'):
+                            os.remove(file)
+
+                    self.qa_record_df = pd.concat(finalized_layers, sort=True)
+                    os.chdir(self.logfile_dir)
+
+            # write out as .csv
+            os.chdir(self.df_destination)
+            self.record_df_name = 'QA_2017-2022_records_data.csv'
+            
+            print(f'''  ..Writing dataframe to '{self.df_destination}' as .CSV.. ''')
+            while True:   
+                try:
+                    self.qa_record_df.to_csv(self.record_df_name)
+                    break
+                except PermissionError:
+                    input('  Permission denied, close target file and press ENTER.. ')
+
+            self.qa_record_df = self.qa_record_df.astype(dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+            print('Complete')
     
 
     def dicom_finder(self, fraction_id, beam_id, verbose=True):
@@ -1036,7 +1261,7 @@ class MachineLog():
             print(f'''\nUnable to locate patient deltaframe for patient-ID {self.patient_id}, calling prepare_deltaframe()..''')
             self.prepare_deltaframe()
         
-        to_drop, to_concat = ['DRILL_TIME(ms)', 'FRACTION_ID', 'BEAM_ID', 'LAYER_ID', 'TOTAL_LAYERS', 'SPOT_ID'], []
+        to_drop, to_concat = ['DRILL_TIME(ms)', 'FRACTION_ID', 'BEAM_ID', 'LAYER_ID', 'TOTAL_LAYERS', 'SPOT_ID', 'SQDIST_TO_ISO(mm)'], []
 
         print('Gathering correlation data from patient database..')
         for this_record in other_records:
@@ -1060,6 +1285,12 @@ class MachineLog():
                 this_joint_df['MU'] = this_record_df['MU'].to_list()
                 this_joint_df['X_POSITION(mm)'] = this_record_df['X_POSITION(mm)'].to_list()
                 this_joint_df['Y_POSITION(mm)'] = this_record_df['Y_POSITION(mm)'].to_list()
+                this_joint_df['X_WIDTH(mm)'] = this_record_df['X_WIDTH(mm)'].to_list()
+                this_joint_df['Y_WIDTH(mm)'] = this_record_df['Y_WIDTH(mm)'].to_list()
+                this_joint_df['PRESSURE(hPa)'] = this_record_df['PRESSURE(hPa)'].to_list()
+                this_joint_df['TEMPERATURE(K)'] = this_record_df['TEMPERATURE(K)'].to_list()
+                this_joint_df['SQDIST_TO_ISO(mm)'] = this_record_df['SQDIST_TO_ISO(mm)'].to_list()
+                # this_joint_df['DIST_TO_ISO(mm)'] = np.sqrt(this_record_df['SQDIST_TO_ISO(mm)'].to_numpy())
                 to_concat.append(this_joint_df)
             else:
                 print(f'  /!\ Dataframe shapes do not match [{this_record_df.shape} vs. {this_joint_df.shape}], skipping patient-ID {this_patient_id}..')
@@ -1070,7 +1301,7 @@ class MachineLog():
 
         corr_matrix = joint_df.corr(method='pearson')
         fig, ax = plt.subplots(1, 1, figsize=(16, 10))
-        sns.heatmap(corr_matrix, annot=True, cmap='icefire')
+        sns.heatmap(corr_matrix, annot=True, cmap='icefire', vmin=-1.0, vmax=1.0)
         plt.tight_layout()
         plt.savefig(f'{output_dir}/{self.patient_id}_correlation_matrix.png', dpi=150)
 
@@ -1501,23 +1732,25 @@ class MachineLog():
                 
 
 if __name__ == '__main__':
-    # log = MachineLog(filedialog.askdirectory(title='Select logfile root directory'))
-    root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction'
-    patients = {}
-    print('Searching for log-file directories with existent plans..')
-    for root, dir, files in os.walk(root_dir):
-        if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
-            patient_id = root.split('\\')[-1]
-            print(f'''  Found {patient_id}''')
-            patients[patient_id] = os.path.join(root, 'Logfiles')
+    root = Tk()
+    log = MachineLog(filedialog.askdirectory(title='Select logfile root directory'))
+    root.destroy()
+    # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction'
+    # patients = {}
+    # print('Searching for log-file directories with existent plans..')
+    # for root, dir, files in os.walk(root_dir):
+    #     if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
+    #         patient_id = root.split('\\')[-1]
+    #         print(f'''  Found {patient_id}''')
+    #         patients[patient_id] = os.path.join(root, 'Logfiles')
 
-    for patiend_id, log_dir in patients.items():
-        print(f'\n...STARTING PATIENT {patiend_id}...\n') 
-        log = MachineLog(log_dir)
-        log.prepare_dataframe()
-        log.prepare_deltaframe()
+    # for patiend_id, log_dir in patients.items():
+    #     print(f'\n...STARTING PATIENT {patiend_id}...\n') 
+    #     log = MachineLog(log_dir)
+    #     # log.prepare_dataframe()
+    #     log.prepare_deltaframe()
         
-    # log.prepare_dataframe()
+    log.prepare_qa_dataframe()
     # log.plot_beam_layers()    
     # log.plot_spot_statistics()
     # log.prepare_deltaframe()
