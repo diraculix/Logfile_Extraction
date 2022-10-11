@@ -163,7 +163,7 @@ class MachineLog():
                         tuning_specifs.append(file)
                     
                 if len(map_records) == 0 or len(tunings) == 0:
-                    raise LookupError('  /x\ No logfiles found!') 
+                        raise LookupError('  /x\ No logfiles found!') 
 
                 num_layers = max([int(fname.split('_')[2].split('_')[0]) + 1 for fname in map_records])
 
@@ -454,7 +454,6 @@ class MachineLog():
                         tuning_df['GANTRY_ANGLE'] = gantry_angle
                         tuning_df['PRESSURE(hPa)'] = pressure
                         tuning_df['FRACTION_ID'] = fraction_id
-                        tuning_df['FRACTION_ID'] = fraction_id
                         # tuning_df['PATIENT_ID'] = self.patient_id
                         tuning_df.drop(columns=['SUBMAP_NUMBER'], inplace=True)
                         tuning_df = tuning_df[~tuning_df.index.duplicated(keep='first')]
@@ -513,227 +512,227 @@ class MachineLog():
     
 
     def prepare_qa_dataframe(self):        
-            # allowed beam parameters
-            qa_energies = [100., 140., 165., 185., 205., 226.7]
-            qa_angles = np.linspace(0., 360., 8, endpoint=False)
-            qa_spots = 18
+        # allowed beam parameters
+        qa_energies = [100., 140., 165., 185., 205., 226.7]
+        qa_angles = np.linspace(0., 360., 8, endpoint=False)
+        qa_spots = 18
 
-            # helper functions for dataframe column operations
-            def map_x_pos(y_pos_arr):
-                return np.multiply(np.subtract(y_pos_arr, ic_offset_x), np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
-            
-            def map_y_pos(x_pos_arr):
-                return np.multiply(np.subtract(x_pos_arr, ic_offset_y), np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
-            
-            def map_x_wid(y_wid_arr):
-                return np.multiply(y_wid_arr, np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
-            
-            def map_y_wid(x_wid_arr):
-                return np.multiply(x_wid_arr, np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
+        # helper functions for dataframe column operations
+        def map_x_pos(y_pos_arr):
+            return np.multiply(np.subtract(y_pos_arr, ic_offset_x), np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
+        
+        def map_y_pos(x_pos_arr):
+            return np.multiply(np.subtract(x_pos_arr, ic_offset_y), np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
+        
+        def map_x_wid(y_wid_arr):
+            return np.multiply(y_wid_arr, np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
+        
+        def map_y_wid(x_wid_arr):
+            return np.multiply(x_wid_arr, np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
 
-            self.qa_record_df = pd.DataFrame()  # overwrite stored df's
-            for fraction_no, fraction_id in enumerate(self.fraction_list):
-                num_beams = len(self.beam_list[fraction_no])
-                for beam_no, beam_id in enumerate(self.beam_list[fraction_no]):
-                    current_beam_path = os.path.join(self.logfile_dir, fraction_id, beam_id)
-                    os.chdir(current_beam_path)
-                    while len(os.listdir('.')) <= 3:
-                        try:
-                            os.chdir(os.listdir('.')[0])  # navigate through nested logfile dir structure (possibly risky)
-                        except OSError:
-                            print(f'  /!\ No directory to enter in {os.getcwd()}, staying here..')
-                            break
+        print(f'\nMining semi-annual spot-QA data..')
+        self.qa_record_df = pd.DataFrame()  # overwrite stored df's
+        for fraction_no, fraction_id in enumerate(self.fraction_list):
+            num_beams = len(self.beam_list[fraction_no])
+            for beam_no, beam_id in enumerate(self.beam_list[fraction_no]):
+                current_beam_path = os.path.join(self.logfile_dir, fraction_id, beam_id)
+                os.chdir(current_beam_path)
+                while len(os.listdir('.')) <= 3:
+                    try:
+                        os.chdir(os.listdir('.')[0])  # navigate through nested logfile dir structure (possibly risky)
+                    except OSError:
+                        print(f'  /!\ No directory to enter in {os.getcwd()}, staying here..')
+                        break
 
-                    map_records, record_specifs = [], []  # get file lists
-                    for file in os.listdir('.'):
-                        if file.__contains__('beam.'):
-                            beam_file = file
-                        elif file.__contains__('beam_config.'):
-                            beam_config = file
-                        elif file.__contains__('map_record') and file.__contains__('part') and not file.__contains__('temp'):
-                            map_records.append(file)
-                        elif file.__contains__('map_specif') and file.__contains__('part'):
-                            record_specifs.append(file)
-                        
-                    if len(map_records) == 0:
-                        raise LookupError('  /x\ No logfiles found!') 
-
-                    num_layers = max([int(fname.split('_')[2].split('_')[0]) + 1 for fname in map_records])
-
-                    with open(beam_file, 'r') as beam_file:  # draw beam specs from *_beam.csv
-                        for line in beam_file.readlines():
-                            if line.__contains__('GantryAngle'):
-                                gantry_angle = float(line.split('>')[1].split('<')[0])
-                            elif line.__contains__('pressure'):
-                                pressure = float(line.split(',')[-1])
-                            elif line.__contains__('temperature'):
-                                temperature = float(line.split(',')[-1])
-                            elif line.__contains__('doseCorrectionFactor'):
-                                chamber_correction = float(line.split(',')[-1])
-
-                        beam_file.close()
+                map_records, record_specifs = [], []  # get file lists
+                for file in os.listdir('.'):
+                    if file.__contains__('beam.'):
+                        beam_file = file
+                    elif file.__contains__('beam_config.'):
+                        beam_config = file
+                    elif file.__contains__('map_record') and not file.__contains__('tuning') and not file.__contains__('temp'):
+                        map_records.append(file)
+                    elif file.__contains__('map_specif') and not file.__contains__('tuning') and not file.__contains__('temp'):
+                        record_specifs.append(file)
                     
-                    if not gantry_angle in qa_angles:
-                        continue
+                if len(map_records) == 0:
+                    print(f'  /!\ Skipping fraction-ID {fraction_id} beam-ID {beam_id}')
+                    continue
+                
+                num_layers = max([int(fname.split('_')[2].split('.')[0].split('_')[0]) + 1 for fname in map_records])
 
-                    with open(beam_config, 'r') as beam_config:  # draw machine parameters from *beam_config.csv
-                        for line in beam_config.readlines():
-                            if line.__contains__('SAD parameter'):
-                                sad_x, sad_y = float(line.split(';')[-1].split(',')[1]), float(line.split(';')[-1].split(',')[0])  # coordinate system switch x <--> y
-                            elif line.__contains__('distanceFromIcToIsocenter'):
-                                ictoiso_x, ictoiso_y = float(line.split(';')[-1].split(',')[1]), float(line.split(';')[-1].split(',')[0])  # coordinate system switch x <--> y
-                            elif line.__contains__('Nozzle WET polynomial'):
-                                nozzle_wet_poly = [float(x) for x in line.split(';')[-1].split(',')]
-                    
-                    # Source: IBA Particle Therapy 08/22 (Jozef Bokor), universal nozzle WET polynomial coefficients
-                    iba_gtr2_poly = [0.001684756748152, -0.00490089228886989, 0.561372013469097, 3.46404838890297]
-                    
-                    layer_exceptions, finalized_layers= [], [self.qa_record_df]
-                    for layer_id in range(num_layers):
-                        to_do_layers = []
-                        no_exceptions = True
-                        for record_file in map_records:  # actual (processed) log-file extraction
-                            if int(record_file.split('_')[2].split('_')[0]) == layer_id:
-                                try:
-                                    record_file_df = pd.read_csv(record_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
+                with open(beam_file, 'r') as beam_file:  # draw beam specs from *_beam.csv
+                    for line in beam_file.readlines():
+                        if line.__contains__('GantryAngle'):
+                            gantry_angle = float(line.split('>')[1].split('<')[0])
+                        elif line.__contains__('pressure'):
+                            pressure = float(line.split(',')[-1])
+                        elif line.__contains__('temperature'):
+                            temperature = float(line.split(',')[-1])
+                        elif line.__contains__('doseCorrectionFactor'):
+                            chamber_correction = float(line.split(',')[-1])
 
-                                except:
-                                    print('  /!\ Read CSV error:', record_file)
-                                    print('      Cleaning record file..')
-                                    with open(record_file, 'r') as record:
-                                        lines, splits = record.readlines(), []
-                                        for nr, line in enumerate(lines):
-                                            if line.__contains__('beamline') and lines[nr - 1] in ['\n', '\r\n']:
-                                                splits.append(nr)
-                                        record.close()
-                                    
-                                    temp_record_files = []
-                                    for nr, split_at in enumerate(splits):
-                                        temp_record_name = record_file.split('.')[:-1]
-                                        temp_record_name.append(f'temp_{nr + 1}.csv')
-                                        temp_record_name = '_'.join(temp_record_name)
-                                        with open(temp_record_name, 'w+') as temp_record:
-                                            if nr == 0:
-                                                temp_record.writelines(lines[:splits[nr + 1]])
-                                            else:
-                                                try:
-                                                    temp_record.writelines(lines[split_at:splits[nr + 1]])
-                                                except:
-                                                    temp_record.writelines(lines[split_at:])
-                                            
-                                            temp_record_files.append(temp_record.name)
-                                            temp_record.close()
-                                    
-                                    for i, temp_record_file in enumerate(temp_record_files):
-                                        if temp_record_file.__contains__('_temp_'):
-                                            map_records.insert(layer_id + (i+1), temp_record_file)
-                                        
-                                    continue
-                                            
-                                try:
-                                    record_file_df['TIME'] = pd.to_datetime(record_file_df['TIME'])     # datetime index --> chronological order
-                                    record_file_df.index = record_file_df['TIME']                              
-                                    record_file_df = record_file_df.loc[:, :'Y_POSITION(mm)']           # slice dataframe, drop redundant columns
-                                    record_file_df.drop(columns=['TIME'], inplace=True)
-                                    try:
-                                        record_file_df.drop(record_file_df[record_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)
-                                    except:
-                                        pass
-                                    record_file_df = record_file_df[record_file_df.groupby('SUBMAP_NUMBER')['SUBMAP_NUMBER'].transform('count') > 1]  # drop all rows without plan-relevant data
-                                
-                                except:  # unlikely event of unusable information in log-file (possible if split into parts)
-                                    no_exceptions = False
-                                    layer_exceptions.append(layer_id)
-                                    continue
-                                
-                                record_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
-                                record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entries for each spot (most accurate)
-                                record_file_df = record_file_df.loc[(record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0)]  # drop redundant rows
-                                
-                                for specif_file in record_specifs:  # draw machine parameters from *map_specif*.csv
-                                    if int(specif_file.split('_')[2].split('_')[0]) == layer_id:
-                                        with open(specif_file, 'r') as specif_file:
-                                            lines = specif_file.readlines()
-                                            ic_offsets = lines[3]
-                                            ic_offset_x, ic_offset_y = float(ic_offsets.split(',')[3]), float(ic_offsets.split(',')[2])  # coordinate system switch x <--> y
-                                            range_at_degrader = float(lines[1].split(',')[1])
-                                
-                                # calculate energy at isocenter from range
-                                nozzle_wet = np.polyval(nozzle_wet_poly, range_at_degrader)  # [mm]
-                                range_at_iso = range_at_degrader - nozzle_wet
-                                layer_energy = np.exp(np.polyval(iba_gtr2_poly, np.log(range_at_iso)))  # [MeV]
-                                record_file_df['LAYER_ENERGY(MeV)'] = layer_energy
+                    beam_file.close()
+                
+                if not gantry_angle in qa_angles:
+                    continue
 
-                                if not np.round(layer_energy, 1) in qa_energies or not len(record_file_df['X_POSITION(mm)']) == qa_spots:
-                                    continue
-                                
-                                # coordinate system transform iba <-> raystation (x <-> y)
-                                record_file_df['X_POS'], record_file_df['Y_POS'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
-                                record_file_df['X_WID'], record_file_df['Y_WID'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
-                                record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS']].apply(map_x_pos)
-                                record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS']].apply(map_y_pos)
-                                record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID']].apply(map_x_wid)
-                                record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID']].apply(map_y_wid)
-                                record_file_df.drop(columns=['X_POS', 'Y_POS', 'X_WID', 'Y_WID'], inplace=True)
-                                record_file_df['DIST_TO_ISO(mm)'] = np.sqrt(np.square(record_file_df['X_POSITION(mm)']) + np.square(record_file_df['Y_POSITION(mm)']))
-                                record_file_df.reindex()  # make sure modified layer df is consistent with indexing
-                                to_do_layers.append(record_file_df)
-                        
-                        if len(to_do_layers) > 0:  # can be zero, if only one spot in layer and omitted by high-weighted tuning
-                            layer_df = pd.concat(to_do_layers)  # concatenate layers, assign additional columns
-                            layer_df['LAYER_ID'] = layer_id
-                            layer_df['TOTAL_LAYERS'] = num_layers
-                            layer_df['BEAM_ID'] = beam_id
-                            layer_df['GANTRY_ANGLE'] = gantry_angle
-                            layer_df['TEMPERATURE(K)'] = temperature
-                            layer_df['PRESSURE(hPa)'] = pressure
-                            layer_df.drop(columns=['SUBMAP_NUMBER'], inplace=True)
-                            layer_df = layer_df[~layer_df.index.duplicated(keep='first')]
-                        else:
-                            print(f'  /!\ No QA record found for layer-ID {layer_id} in beam {beam_id}, continuing..')
-                            continue
-                        
-                        del to_do_layers
-                        
-                        finalized_layers.append(layer_df)
-
-                        if no_exceptions:
-                            char = '#'
-                        else:
-                            char = '_'
-
-                    if beam_no == (num_beams - 1):  # progress visualization
-                        if no_exceptions:
-                            print('  ', '[' + (beam_no + 1) * char + (num_beams - beam_no - 1) * '-' + ']', end=f' Fraction {fraction_id} complete\n')
-                        else:    
-                            print('  ', '[' + (beam_no + 1) * char + (num_beams - beam_no - 1) * '-' + ']', end=f' Fraction {fraction_id} complete (empty dataframe exception in layer(s) {layer_exceptions}\n')
-                    else:
-                        print('  ', '[' + (beam_no + 1) * char + (num_beams - beam_no - 1) * '-' + ']', end=f' Beam {str(beam_no + 1).zfill(2)}/{str(num_beams).zfill(2)}\r')
-                    
+                with open(beam_config, 'r') as beam_config:  # draw machine parameters from *beam_config.csv
+                    for line in beam_config.readlines():
+                        if line.__contains__('SAD parameter'):
+                            sad_x, sad_y = float(line.split(';')[-1].split(',')[1]), float(line.split(';')[-1].split(',')[0])  # coordinate system switch x <--> y
+                        elif line.__contains__('distanceFromIcToIsocenter'):
+                            ictoiso_x, ictoiso_y = float(line.split(';')[-1].split(',')[1]), float(line.split(';')[-1].split(',')[0])  # coordinate system switch x <--> y
+                        elif line.__contains__('Nozzle WET polynomial'):
+                            nozzle_wet_poly = [float(x) for x in line.split(';')[-1].split(',')]
+                
+                # Source: IBA Particle Therapy 08/22 (Jozef Bokor), universal nozzle WET polynomial coefficients
+                iba_gtr2_poly = [0.001684756748152, -0.00490089228886989, 0.561372013469097, 3.46404838890297]
+                
+                layer_exceptions, finalized_layers= [], [self.qa_record_df]
+                for layer_id in range(num_layers):
+                    to_do_layers = []
                     no_exceptions = True
+                    for file_id, record_file in enumerate(map_records):  # actual (processed) log-file extraction
+                        if int(record_file.split('_')[2].split('.')[0].split('_')[0]) == layer_id:
+                            try:
+                                record_file_df = pd.read_csv(record_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
 
-                    # remove temporary files
-                    for file in os.listdir('.'):
-                        if file.__contains__('temp'):
-                            os.remove(file)
+                            except:
+                                print('  /!\ Read CSV error:', record_file)
+                                print('      Cleaning record file..')
+                                with open(record_file, 'r') as record:
+                                    lines, splits = record.readlines(), []
+                                    for nr, line in enumerate(lines):
+                                        if line.__contains__('beamline') and lines[nr - 1] in ['\n', '\r\n']:
+                                            splits.append(nr)
+                                    record.close()
+                                
+                                temp_record_files = []
+                                for nr, split_at in enumerate(splits):
+                                    temp_record_name = record_file.split('.')[:-1]
+                                    temp_record_name.append(f'temp_{nr + 1}.csv')
+                                    temp_record_name = '_'.join(temp_record_name)
+                                    with open(temp_record_name, 'w+') as temp_record:
+                                        if nr == 0:
+                                            temp_record.writelines(lines[:splits[nr + 1]])
+                                        else:
+                                            try:
+                                                temp_record.writelines(lines[split_at:splits[nr + 1]])
+                                            except:
+                                                temp_record.writelines(lines[split_at:])
+                                        
+                                        temp_record_files.append(temp_record.name)
+                                        temp_record.close()
+                                
+                                for i, temp_record_file in enumerate(temp_record_files):
+                                    if temp_record_file.__contains__('_temp_'):
+                                        map_records.insert(file_id + (i+1), temp_record_file)
+                                    
+                                continue
+                                        
+                            try:
+                                record_file_df['TIME'] = pd.to_datetime(record_file_df['TIME'])     # datetime index --> chronological order
+                                record_file_df.index = record_file_df['TIME']                              
+                                record_file_df = record_file_df.loc[:, :'Y_POSITION(mm)']           # slice dataframe, drop redundant columns
+                                record_file_df.drop(columns=['TIME'], inplace=True)
+                                try:
+                                    record_file_df.drop(record_file_df[record_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)
+                                except:
+                                    pass
+                                record_file_df = record_file_df[record_file_df.groupby('SUBMAP_NUMBER')['SUBMAP_NUMBER'].transform('count') > 1]  # drop all rows without plan-relevant data
+                            
+                            except:  # unlikely event of unusable information in log-file (possible if split into parts)
+                                no_exceptions = False
+                                layer_exceptions.append(layer_id)
+                                continue
+                            
+                            record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entries for each spot (most accurate)
+                            record_file_df = record_file_df.loc[(record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0)]  # drop redundant rows
+                            
+                            for specif_file in record_specifs:  # draw machine parameters from *map_specif*.csv
+                                if int(specif_file.split('_')[2].split('.')[0].split('_')[0]) == layer_id:
+                                    with open(specif_file, 'r') as specif_file:
+                                        lines = specif_file.readlines()
+                                        ic_offsets = lines[3]
+                                        ic_offset_x, ic_offset_y = float(ic_offsets.split(',')[3]), float(ic_offsets.split(',')[2])  # coordinate system switch x <--> y
+                                        range_at_degrader = float(lines[1].split(',')[1])
+                            
+                            # calculate energy at isocenter from range
+                            nozzle_wet = np.polyval(nozzle_wet_poly, range_at_degrader)  # [mm]
+                            range_at_iso = range_at_degrader - nozzle_wet
+                            layer_energy = np.exp(np.polyval(iba_gtr2_poly, np.log(range_at_iso)))  # [MeV]
+                            record_file_df['LAYER_ENERGY(MeV)'] = layer_energy
 
-                    self.qa_record_df = pd.concat(finalized_layers, sort=True)
-                    os.chdir(self.logfile_dir)
+                            if not np.round(layer_energy, 1) in qa_energies or not len(record_file_df['X_POSITION(mm)'].drop_duplicates()) == qa_spots:
+                                continue
+                            
+                            # coordinate system transform iba <-> raystation (x <-> y)
+                            record_file_df.drop_duplicates(subset=['X_POSITION(mm)', 'Y_POSITION(mm)'], inplace=True)
+                            record_file_df['X_POS'], record_file_df['Y_POS'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
+                            record_file_df['X_WID'], record_file_df['Y_WID'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
+                            record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS']].apply(map_x_pos)
+                            record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS']].apply(map_y_pos)
+                            record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID']].apply(map_x_wid)
+                            record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID']].apply(map_y_wid)
+                            record_file_df.drop(columns=['X_POS', 'Y_POS', 'X_WID', 'Y_WID'], inplace=True)
+                            record_file_df['DIST_TO_ISO(mm)'] = np.sqrt(np.square(record_file_df['X_POSITION(mm)']) + np.square(record_file_df['Y_POSITION(mm)']))
+                            record_file_df.reindex()  # make sure modified layer df is consistent with indexing
+                            to_do_layers.append(record_file_df)
+                    
+                    if len(to_do_layers) > 0:  # can be zero, if only one spot in layer and omitted by high-weighted tuning
+                        layer_df = pd.concat(to_do_layers)  # concatenate layers, assign additional columns
+                        layer_df['LAYER_ID'] = layer_id
+                        layer_df['TOTAL_LAYERS'] = num_layers
+                        layer_df['FRACTION_ID'] = fraction_id
+                        layer_df['BEAM_ID'] = beam_id
+                        layer_df['GANTRY_ANGLE'] = gantry_angle
+                        layer_df['TEMPERATURE(K)'] = temperature
+                        layer_df['PRESSURE(hPa)'] = pressure
+                        layer_df.drop(columns=['SUBMAP_NUMBER'], inplace=True)
+                        layer_df = layer_df[~layer_df.index.duplicated(keep='first')]
+                    else:
+                        # print(f'  /!\ No QA record found for layer-ID {layer_id} in beam {beam_id}, continuing..')
+                        continue
+                    
+                    del to_do_layers
+                    
+                    finalized_layers.append(layer_df)
 
-            # write out as .csv
-            os.chdir(self.df_destination)
-            self.record_df_name = 'QA_2017-2022_records_data.csv'
-            
-            print(f'''  ..Writing dataframe to '{self.df_destination}' as .CSV.. ''')
-            while True:   
-                try:
-                    self.qa_record_df.to_csv(self.record_df_name)
-                    break
-                except PermissionError:
-                    input('  Permission denied, close target file and press ENTER.. ')
+                if no_exceptions:
+                    char = '#'
+                else:
+                    char = '_'
 
-            self.qa_record_df = self.qa_record_df.astype(dtype={'BEAM_ID':str, 'FRACTION_ID':str})
-            print('Complete')
+                if beam_no == (num_beams - 1):  # progress visualization
+                    print('  ', '[' + (beam_no + 1) * char + (num_beams - beam_no - 1) * '-' + ']', end=f' Fraction {fraction_id} complete\n')
+                else:
+                    print('  ', '[' + (beam_no + 1) * char + (num_beams - beam_no - 1) * '-' + ']', end=f' Beam {str(beam_no + 1).zfill(2)}/{str(num_beams).zfill(2)}\r')
+                
+                no_exceptions = True
+
+                # remove temporary files
+                for file in os.listdir('.'):
+                    if file.__contains__('temp'):
+                        os.remove(file)
+
+                self.qa_record_df = pd.concat(finalized_layers, sort=True)
+                os.chdir(self.logfile_dir)
+
+        # write out as .csv
+        os.chdir(self.df_destination)
+        self.record_df_name = 'QA_2017-2022_records_data.csv'
+        
+        print(f'''  ..Writing dataframe to '{self.df_destination}' as .CSV.. ''')
+        while True:   
+            try:
+                self.qa_record_df.to_csv(self.record_df_name)
+                break
+            except PermissionError:
+                input('  Permission denied, close target file and press ENTER.. ')
+
+        self.qa_record_df = self.qa_record_df.astype(dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+        print('Complete')
     
 
     def dicom_finder(self, fraction_id, beam_id, verbose=True):
@@ -918,19 +917,19 @@ class MachineLog():
             tuning_points_log = [tuple for tuple in zip(layer_tuning_df['X_POSITION(mm)'].to_list(), layer_tuning_df['Y_POSITION(mm)'].to_list())]
             spot_points_sorted = [spot_points_log[beam_sorting_dict[layer_id][i]] for i in range(len(spot_points_log))]
             
-            # if beam_id == '01' and layer_id == 7:
+            # if beam_id == '03' and layer_id == 13:
             #     fig2, ax2 = plt.subplots(figsize=(6, 6))
             #     ax2.plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', label='Planned')
             #     ax2.plot(*zip(*spot_points_log), marker='o', markerfacecolor='None', linestyle='--', color='grey', label='Log-file original')
-            #     ax2.plot(*zip(*xy_positions_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', label='Log-file sorted')
-            #     ax2.plot(x_tunings, y_tunings, marker='o', markerfacecolor='None', linestyle='None', color='limegreen', label='Tuning spot(s)')
+            #     ax2.plot(*zip(*spot_points_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', label='Log-file sorted')
+            #     ax2.plot(*zip(*tuning_points_log), marker='o', markerfacecolor='None', linestyle='None', color='limegreen', label='Tuning spot(s)')
             #     # ax2.annotate(f'Beam {beam_id} | Layer #{str(layer_id + 1).zfill(2)} | $\Delta$ = {abs(len(plan_x_positions) - len(x_positions))}', xy=(1.0, 1.0), xycoords='axes points')
-            #     ax2.set_xlabel('X [mm]')
-            #     ax2.set_ylabel('Y [mm]')
+            #     ax2.set_xlabel('Spot $x$-position @ISO [mm]')
+            #     ax2.set_ylabel('Spot $y$-position @ISO [mm]')
             #     ax2.legend()
             #     fig2.tight_layout()
-            #     fig2.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_spotmap_KS.png', dpi=600)
-            #    
+            #     fig2.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_spotmap_KS.png', dpi=2000)
+               
             #     return None
 
             axs[layer_id].plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Planned')
@@ -1339,7 +1338,7 @@ class MachineLog():
         print(f'''\nSelected option is ({choice}) {options[choice - 1]}. Starting..''')
 
         if choice == 1:
-            fig, axs = plt.subplots(2, 2, figsize=(9, 8))
+            fig, axs = plt.subplots(2, 2, figsize=(7, 6))
             ax0 = fig.add_subplot(111, frameon=False)
             ax0.set_xticks([])
             ax0.set_yticks([])
@@ -1347,23 +1346,23 @@ class MachineLog():
             axs[0].hist(self.patient_delta_df['DELTA_X(mm)'], bins=80, alpha=0.7, edgecolor='black', label=f'''$\mu_x =$ {self.patient_delta_df['DELTA_X(mm)'].mean():.3f} mm\n$\sigma_x =$ {self.patient_delta_df['DELTA_X(mm)'].std():.3f} mm''')
             axs[0].axvline(self.patient_delta_df['DELTA_X(mm)'].mean(), ls='-', color='black', lw=0.5)
             axs[0].axvline(0.0, ls='--', color='black', lw=0.5)
-            axs[0].set_xlabel('$\Delta x$ [mm]')
+            axs[0].set_xlabel('$\Delta x$ to plan [mm]')
             axs[0].set_xlim(-2, 2)
-            axs[1].hist(self.patient_delta_df['DELTA_Y(mm)'], bins=110, alpha=0.7, edgecolor='black', label=f'''$\mu_y =$ {self.patient_delta_df['DELTA_Y(mm)'].mean():.3f} mm\n$\sigma_y =$ {self.patient_delta_df['DELTA_Y(mm)'].std():.3f} mm''')
+            axs[1].hist(self.patient_delta_df['DELTA_Y(mm)'], bins=90, alpha=0.7, edgecolor='black', label=f'''$\mu_y =$ {self.patient_delta_df['DELTA_Y(mm)'].mean():.3f} mm\n$\sigma_y =$ {self.patient_delta_df['DELTA_Y(mm)'].std():.3f} mm''')
             axs[1].axvline(self.patient_delta_df['DELTA_Y(mm)'].mean(), ls='-', color='black', lw=0.5)
             axs[1].axvline(0.0, ls='--', color='black', lw=0.5)
-            axs[1].set_xlabel('$\Delta y$ [mm]')
+            axs[1].set_xlabel('$\Delta y$ to plan [mm]')
             axs[1].set_xlim(-2, 2)
-            axs[2].hist(self.patient_delta_df['DELTA_MU'], bins=1000, color='tab:green', alpha=0.7, edgecolor='black', label=f'''$\mu_D =$ {self.patient_delta_df['DELTA_MU'].mean():.3f} MU\n$\sigma_D =$ {self.patient_delta_df['DELTA_MU'].std():.3f} MU''')
+            axs[2].hist(self.patient_delta_df['DELTA_MU'], bins=1500, color='tab:green', alpha=0.7, edgecolor='black', label=f'''$\mu_D =$ {self.patient_delta_df['DELTA_MU'].mean():.3f} MU\n$\sigma_D =$ {self.patient_delta_df['DELTA_MU'].std():.3f} MU''')
             axs[2].axvline(self.patient_delta_df['DELTA_MU'].mean(), ls='-', color='black', lw=0.5)
             axs[2].axvline(0.0, ls='--', color='black', lw=0.5)
-            axs[2].set_xlabel('$\Delta D$ [MU]')
+            axs[2].set_xlabel('Dose difference to plan [MU]')
             axs[2].set_xlim(-0.005, 0.005)
             # axs[2].set_ylim(0, 30000)
-            axs[3].hist(self.patient_delta_df['DELTA_E(MeV)'].drop_duplicates(), bins=15, color='tab:red', alpha=0.7, edgecolor='black', label=f'''$\mu_E =$ {self.patient_delta_df['DELTA_E(MeV)'].mean():.3f} MeV\n$\sigma_E =$ {self.patient_delta_df['DELTA_E(MeV)'].std():.3f} MeV''')
+            axs[3].hist(self.patient_delta_df['DELTA_E(MeV)'].drop_duplicates(), bins=17, color='tab:red', alpha=0.7, edgecolor='black', label=f'''$\mu_E =$ {self.patient_delta_df['DELTA_E(MeV)'].mean():.3f} MeV\n$\sigma_E =$ {self.patient_delta_df['DELTA_E(MeV)'].std():.3f} MeV''')
             axs[3].axvline(self.patient_delta_df['DELTA_E(MeV)'].mean(), ls='-', color='black', lw=0.5)
             axs[3].axvline(0.0, ls='--', color='black', lw=0.5)
-            axs[3].set_xlabel('$\Delta E$ [MeV]')
+            axs[3].set_xlabel('Energy difference to plan [MeV]')
             axs[3].set_xlim(-0.04, 0.04)
             for ax in axs:
                 ax.grid(axis='y', zorder=-1)
@@ -1372,7 +1371,7 @@ class MachineLog():
                 ax.legend()
             # ax0.set_title(f'Delta Histograms for Patient-ID {self.patient_id}', fontweight='bold')
             plt.tight_layout()
-            plt.savefig(f'{output_dir}/{self.patient_id}_histograms.png')
+            plt.savefig(f'{output_dir}/{self.patient_id}_histograms.png', dpi=2000)
             plt.show()            
         
         if choice == 2:  # gantry angle vs. delta(x,y)
@@ -1732,9 +1731,7 @@ class MachineLog():
                 
 
 if __name__ == '__main__':
-    root = Tk()
-    log = MachineLog(filedialog.askdirectory(title='Select logfile root directory'))
-    root.destroy()
+    log = MachineLog(r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\1676348\Logfiles')
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction'
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
@@ -1750,11 +1747,11 @@ if __name__ == '__main__':
     #     # log.prepare_dataframe()
     #     log.prepare_deltaframe()
         
-    log.prepare_qa_dataframe()
+    # log.prepare_qa_dataframe()
     # log.plot_beam_layers()    
     # log.plot_spot_statistics()
     # log.prepare_deltaframe()
-    # log.delta_dependencies()
+    log.delta_dependencies()
     # log.dicom_finder('20200604', '07', True)
     # for mode in ['all', 'pos', 'mu']:
     #     log.plan_creator(fraction='last', mode=mode)
