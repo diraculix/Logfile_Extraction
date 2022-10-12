@@ -1730,69 +1730,88 @@ class MachineLog():
             print(f'Wrote log-based plan to RP{ds.SOPInstanceUID}_fx_{fx_id}_log_{mode}.dcm')
                 
 
-    def fractional_evolution(self):
-        beam_list = self.patient_record_df['BEAM_ID'].drop_duplicates()
+    def fractional_evolution(self, all=False):
+        other_records = []
+        for file in os.listdir(self.df_destination):
+            if file.__contains__('records') and file.endswith('.csv') and not file.__contains__('qa'):
+                other_records.append(os.path.join(self.df_destination, file))
+
         fig = plt.figure(figsize=(10, 6))
-        for beam_id in beam_list:
-            if beam_id.__contains__('G'):
-                continue
+        for record_file in other_records:
+            if not all:
+                this_record_df = self.patient_record_df
+            else:
+                this_record_df = pd.read_csv(record_file, index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})          
+            
+            beam_list = this_record_df['BEAM_ID'].drop_duplicates()
+            for beam_id in beam_list:
+                if beam_id.__contains__('G'):
+                    continue
 
-            beam_df = self.patient_record_df.loc[self.patient_record_df['BEAM_ID'] == beam_id]
-            beam_fxs = beam_df['FRACTION_ID'].drop_duplicates()
-            ref_df = beam_df.loc[beam_df['FRACTION_ID'] == beam_fxs.iloc[0]]
-            date_axis, fx_dist_means, fx_dist_stds = [], [], []
-            for fx_id in beam_fxs:
-                fx_df = beam_df.loc[beam_df['FRACTION_ID'] == fx_id]
-                if len(fx_df) != len(ref_df):
-                        for index, pair in enumerate(zip(fx_df['X_POSITION(mm)'], ref_df['X_POSITION(mm)'])):
-                            if abs(pair[0] - pair[1]) > 3:  # mm difference
-                                if len(fx_df) > len(ref_df):
-                                    fx_df = fx_df.drop(fx_df.index[index])
-                                else:
-                                    ref_df = ref_df.drop(ref_df.index[index])
-                                
-                                break
-                
-                date = pd.to_datetime(fx_df.index[0]).date()
-                print(date)
-                dx = fx_df['X_POSITION(mm)'].to_numpy() - ref_df['X_POSITION(mm)'].to_numpy()
-                dy = fx_df['Y_POSITION(mm)'].to_numpy() - ref_df['Y_POSITION(mm)'].to_numpy()
-                dist = [np.linalg.norm(tup) for tup in zip(dx, dy)]
-                # print(np.round(max(dx), 3), np.round(max(dy), 3), np.round(max(dist), 3))
-                fx_dist_means.append(np.mean(dist)), fx_dist_stds.append(np.std(dist)), date_axis.append(date)
+                beam_df = this_record_df.loc[this_record_df['BEAM_ID'] == beam_id]
+                beam_fxs = beam_df['FRACTION_ID'].drop_duplicates()
+                ref_df = beam_df.loc[beam_df['FRACTION_ID'] == beam_fxs.iloc[0]]
+                date_axis, fx_dist_means, fx_dist_stds = [], [], []
+                for fx_id in beam_fxs[1:]:
+                    fx_df = beam_df.loc[beam_df['FRACTION_ID'] == fx_id]
+                    if len(fx_df) != len(ref_df):
+                            for index, pair in enumerate(zip(fx_df['X_POSITION(mm)'], ref_df['X_POSITION(mm)'])):
+                                if abs(pair[0] - pair[1]) > 3:  # mm difference
+                                    if len(fx_df) > len(ref_df):
+                                        fx_df = fx_df.drop(fx_df.index[index])
+                                    else:
+                                        ref_df = ref_df.drop(ref_df.index[index])
+                                    
+                                    break
+                    
+                    date = pd.to_datetime(fx_df.index[0]).date()
+                    dx = fx_df['X_POSITION(mm)'].to_numpy() - ref_df['X_POSITION(mm)'].to_numpy()
+                    dy = fx_df['Y_POSITION(mm)'].to_numpy() - ref_df['Y_POSITION(mm)'].to_numpy()
+                    dist = [np.linalg.norm(tup) for tup in zip(dx, dy)]
+                    # print(np.round(max(dx), 3), np.round(max(dy), 3), np.round(max(dist), 3))
+                    fx_dist_means.append(np.mean(dist)), fx_dist_stds.append(np.std(dist)), date_axis.append(date)
 
-            plt.errorbar(x=date_axis, y=fx_dist_means, yerr=None, marker='o', ls='-', capsize=3, label=beam_id)
-            # plt.plot([self.fraction_list.index(i) for i in beam_fxs], fx_dist_stds, ls='--', label=beam_id)
+                if not all:
+                    plt.errorbar(x=date_axis, y=fx_dist_means, yerr=None, fmt='o-', capsize=3, label=beam_id)
+                else:
+                    plt.errorbar(x=date_axis, y=fx_dist_means, yerr=None, fmt='o', capsize=3,  color='black', markersize=2, label=beam_id)
+
+            if not all:
+                break            
         
-        plt.title(f'Fractional delivery fluctuation for patient-ID {self.patient_id}', fontweight='bold', pad=10)
-        plt.xlabel('Fraction number')
+        plt.xlabel('Date [YYYY-MM-DD]')
         plt.ylabel('Mean distance to reference [mm]')
-        # plt.xlim(0, len(self.fraction_list) - 1)
-        plt.ylim(0, )
+        plt.ylim(0.0, 1.0)
         plt.grid(axis='y')
-        # plt.legend(bbox_to_anchor=(1,1), loc="upper left", title='Beam-ID')
-        plt.legend(title='Beam-ID')
-        plt.tight_layout()
-        plt.show()    
+        if not all:
+            plt.title(f'Delivery fluctuation of spot position (pat.-ID {self.patient_id})', fontweight='bold')
+            plt.legend(title='Beam-ID')
+            plt.tight_layout()
+            plt.savefig(f'{output_dir}/{self.patient_id}_fractional_fluctuation.png', dpi=1000)
+        else:
+            plt.title('Delivery fluctuation of spot position (all patients)', fontweight='bold')
+            plt.tight_layout()
+            plt.savefig(f'{output_dir}/full_fractional_fluctuation.png', dpi=1000)
+        # plt.show()    
 
 
 if __name__ == '__main__':
-    # log = MachineLog(r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\1588055\Logfiles')
+    log = MachineLog(r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\1588055\Logfiles')
     # log = MachineLog(r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\1676348\Logfiles')
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction'
-    root_dir =r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile'
-    patients = {}
-    print('Searching for log-file directories with existent plans..')
-    for root, dir, files in os.walk(root_dir):
-        if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
-            patient_id = root.split('\\')[-1]
-            print(f'''  Found {patient_id}''')
-            patients[patient_id] = os.path.join(root, 'Logfiles')
+    # root_dir =r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile'
+    # patients = {}
+    # print('Searching for log-file directories with existent plans..')
+    # for root, dir, files in os.walk(root_dir):
+    #     if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
+    #         patient_id = root.split('\\')[-1]
+    #         print(f'''  Found {patient_id}''')
+    #         patients[patient_id] = os.path.join(root, 'Logfiles')
 
-    for patiend_id, log_dir in patients.items():
-        print(f'\n...STARTING PATIENT {patiend_id}...\n') 
-        log = MachineLog(log_dir)
-        log.prepare_dataframe()
+    # for patiend_id, log_dir in patients.items():
+    #     print(f'\n...STARTING PATIENT {patiend_id}...\n') 
+    #     log = MachineLog(log_dir)
+    #     log.prepare_dataframe()
         # log.prepare_deltaframe()
         
     # log.prepare_qa_dataframe()
@@ -1806,7 +1825,7 @@ if __name__ == '__main__':
     # log.plan_creator(fraction='last', mode='all')
     # log.beam_timings()
     # log.delta_correlation_matrix()
-    log.fractional_evolution()
+    log.fractional_evolution(all=True)
     # sorting_dict = log.spot_sorter(fraction_id=log.fraction_list[0], beam_id=log.patient_record_df['BEAM_ID'].iloc[0])
     pass
 
