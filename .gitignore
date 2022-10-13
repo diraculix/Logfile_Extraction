@@ -10,3 +10,4 @@ deprecated/
 __pycache__/
 .vscode/
 PlanCreator.py
+prepare_qa_dataframe.py
