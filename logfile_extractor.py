@@ -79,10 +79,17 @@ class MachineLog():
                 for file in os.listdir('.'):
                     if file.__contains__('beam.'):
                         beam_file = file
-                with open(beam_file, 'r') as beam_file:
-                    for line in beam_file.readlines():
-                            if line.__contains__('PatientId'):
-                                self.patient_id = line.split('>')[1].split('<')[0]
+
+                try:
+                    with open(beam_file, 'r') as beam_file:
+                        for line in beam_file.readlines():
+                                if line.__contains__('PatientId'):
+                                    self.patient_id = line.split('>')[1].split('<')[0]
+                        
+                        beam_file.close()
+                except TypeError:
+                    print(f'  /!\ Invalid beam {beam_id} in fraction {fraction_id}')
+                    continue
         
         record_df_exists, tuning_df_exists = False, False
         for dirpath, dirnames, filenames in os.walk(os.path.join(self.df_destination, '..')):  # sweep over root directory, read existing dataframes
@@ -1260,7 +1267,7 @@ class MachineLog():
             print(f'''\nUnable to locate patient deltaframe for patient-ID {self.patient_id}, calling prepare_deltaframe()..''')
             self.prepare_deltaframe()
         
-        to_drop, to_concat = ['DRILL_TIME(ms)', 'FRACTION_ID', 'BEAM_ID', 'LAYER_ID', 'TOTAL_LAYERS', 'SPOT_ID', 'SQDIST_TO_ISO(mm)'], []
+        to_drop, to_concat = ['DRILL_TIME(ms)', 'FRACTION_ID', 'LAYER_ID', 'TOTAL_LAYERS', 'SPOT_ID', 'SQDIST_TO_ISO(mm)'], []
 
         print('Gathering correlation data from patient database..')
         for this_record in other_records:
@@ -1269,8 +1276,8 @@ class MachineLog():
             for this_delta in other_deltas:
                 this_delta_id = this_delta.split('\\')[-1].split('_')[1]
                 if this_patient_id == this_delta_id:
-                    this_record_df = pd.read_csv(this_record, index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
-                    this_joint_df = pd.read_csv(this_delta, index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+                    this_record_df = pd.read_csv(this_record, index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str, 'GANTRY_ANGLE':str})
+                    this_joint_df = pd.read_csv(this_delta, index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str,'GANTRY_ANGLE':str})
                     has_delta = True
                     break
 
@@ -1288,21 +1295,24 @@ class MachineLog():
                 this_joint_df['Y_WIDTH(mm)'] = this_record_df['Y_WIDTH(mm)'].to_list()
                 this_joint_df['PRESSURE(hPa)'] = this_record_df['PRESSURE(hPa)'].to_list()
                 this_joint_df['TEMPERATURE(K)'] = this_record_df['TEMPERATURE(K)'].to_list()
-                this_joint_df['SQDIST_TO_ISO(mm)'] = this_record_df['SQDIST_TO_ISO(mm)'].to_list()
-                # this_joint_df['DIST_TO_ISO(mm)'] = np.sqrt(this_record_df['SQDIST_TO_ISO(mm)'].to_numpy())
+                # this_joint_df['SQDIST_TO_ISO(mm)'] = this_record_df['SQDIST_TO_ISO(mm)'].to_list()
+                this_joint_df['DIST_TO_ISO(mm)'] = np.sqrt(this_record_df['SQDIST_TO_ISO(mm)'].to_numpy())
                 to_concat.append(this_joint_df)
             else:
                 print(f'  /!\ Dataframe shapes do not match [{this_record_df.shape} vs. {this_joint_df.shape}], skipping patient-ID {this_patient_id}..')
                 continue
         
         joint_df = pd.concat(to_concat, ignore_index=True)
-        del to_concat
-
         corr_matrix = joint_df.corr(method='pearson')
         fig, ax = plt.subplots(1, 1, figsize=(16, 10))
         sns.heatmap(corr_matrix, annot=True, cmap='icefire', vmin=-1.0, vmax=1.0)
         plt.tight_layout()
         plt.savefig(f'{output_dir}/{self.patient_id}_correlation_matrix.png', dpi=150)
+        plt.clf()
+        fig, ax = plt.subplots(1, 1, figsize=(15, 15))
+        sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'DELTA_MU', 'MU', 'LAYER_ENERGY(MeV)', 'DIST_TO_ISO(mm)'], hue='GANTRY_ANGLE')
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/pairplot_all.png', dpi=1000)
 
 
     def delta_dependencies(self):
@@ -1737,7 +1747,8 @@ class MachineLog():
                 other_records.append(os.path.join(self.df_destination, file))
 
         fig = plt.figure(figsize=(10, 6))
-        for record_file in other_records:
+        for n, record_file in enumerate(other_records):
+            print(f'\nStarting record dataframe ({n + 1}/{len(other_records)}) {record_file}..')
             if not all:
                 this_record_df = self.patient_record_df
             else:
@@ -1745,31 +1756,47 @@ class MachineLog():
             
             beam_list = this_record_df['BEAM_ID'].drop_duplicates()
             for beam_id in beam_list:
-                if beam_id.__contains__('G'):
-                    continue
-
+                print(f'  Processing beam-ID {beam_id}..')
                 beam_df = this_record_df.loc[this_record_df['BEAM_ID'] == beam_id]
                 beam_fxs = beam_df['FRACTION_ID'].drop_duplicates()
                 ref_df = beam_df.loc[beam_df['FRACTION_ID'] == beam_fxs.iloc[0]]
                 date_axis, fx_dist_means, fx_dist_stds = [], [], []
                 for fx_id in beam_fxs[1:]:
+                    ref_df_copy = ref_df
                     fx_df = beam_df.loc[beam_df['FRACTION_ID'] == fx_id]
-                    if len(fx_df) != len(ref_df):
-                            for index, pair in enumerate(zip(fx_df['X_POSITION(mm)'], ref_df['X_POSITION(mm)'])):
-                                if abs(pair[0] - pair[1]) > 3:  # mm difference
-                                    if len(fx_df) > len(ref_df):
-                                        fx_df = fx_df.drop(fx_df.index[index])
-                                    else:
-                                        ref_df = ref_df.drop(ref_df.index[index])
-                                    
-                                    break
-                    
+                    while len(fx_df) != len(ref_df_copy):
+                        print(f'    Correcting fx-ID {fx_id}')
+                        dropped = False
+                        for index, pair in enumerate(zip(fx_df['X_POSITION(mm)'], ref_df_copy['X_POSITION(mm)'])):
+                            if abs(pair[0] - pair[1]) > 2:  # mm difference
+                                if len(fx_df) > len(ref_df_copy):
+                                    fx_df = fx_df.drop(fx_df.index[index])
+                                else:
+                                    ref_df_copy = ref_df_copy.drop(ref_df_copy.index[index])
+                                
+                                dropped = True
+                                break
+                        
+                        if not dropped:
+                            print(f'  /!\ Slicing dataframe due to shape mismatch (beam-ID {beam_id}, fx-ID {fx_id})..')
+                            if len(fx_df) > len(ref_df_copy):
+                                fx_df = fx_df.loc[:fx_df.index[len(ref_df_copy) - 1]]
+                            else:
+                                ref_df_copy = ref_df_copy.loc[:ref_df_copy.index[len(fx_df) - 1]]
+
                     date = pd.to_datetime(fx_df.index[0]).date()
-                    dx = fx_df['X_POSITION(mm)'].to_numpy() - ref_df['X_POSITION(mm)'].to_numpy()
-                    dy = fx_df['Y_POSITION(mm)'].to_numpy() - ref_df['Y_POSITION(mm)'].to_numpy()
-                    dist = [np.linalg.norm(tup) for tup in zip(dx, dy)]
-                    # print(np.round(max(dx), 3), np.round(max(dy), 3), np.round(max(dist), 3))
-                    fx_dist_means.append(np.mean(dist)), fx_dist_stds.append(np.std(dist)), date_axis.append(date)
+                    try:
+                        dx = fx_df['X_POSITION(mm)'].to_numpy() - ref_df_copy['X_POSITION(mm)'].to_numpy()
+                        dy = fx_df['Y_POSITION(mm)'].to_numpy() - ref_df_copy['Y_POSITION(mm)'].to_numpy()
+                        dist = [np.linalg.norm(tup) for tup in zip(dx, dy)]
+                        fx_dist_means.append(np.mean(dist)), fx_dist_stds.append(np.std(dist)), date_axis.append(date)
+                    except:
+                        # fig2 = plt.figure()
+                        # print(record_file, fx_id, beam_id)
+                        # plt.scatter(fx_df['X_POSITION(mm)'], fx_df['Y_POSITION(mm)'])
+                        # plt.scatter(ref_df_copy['X_POSITION(mm)'], ref_df_copy['Y_POSITION(mm)'])
+                        # plt.show()
+                        print('help')                
 
                 if not all:
                     plt.errorbar(x=date_axis, y=fx_dist_means, yerr=None, fmt='o-', capsize=3, label=beam_id)
@@ -1796,7 +1823,10 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    log = MachineLog(r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\1588055\Logfiles')
+    root = Tk()
+    log= MachineLog(filedialog.askdirectory())
+    root.destroy()
+    # log = MachineLog(r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\1588055\Logfiles')
     # log = MachineLog(r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\1676348\Logfiles')
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction'
     # root_dir =r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile'
@@ -1814,7 +1844,7 @@ if __name__ == '__main__':
     #     log.prepare_dataframe()
         # log.prepare_deltaframe()
         
-    # log.prepare_qa_dataframe()
+    log.prepare_qa_dataframe()
     # log.plot_beam_layers()    
     # log.plot_spot_statistics()
     # log.prepare_deltaframe()
@@ -1825,7 +1855,7 @@ if __name__ == '__main__':
     # log.plan_creator(fraction='last', mode='all')
     # log.beam_timings()
     # log.delta_correlation_matrix()
-    log.fractional_evolution(all=True)
+    # log.fractional_evolution(all=True)
     # sorting_dict = log.spot_sorter(fraction_id=log.fraction_list[0], beam_id=log.patient_record_df['BEAM_ID'].iloc[0])
     pass
 
