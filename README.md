@@ -9,7 +9,13 @@ _Proton therapy irradiation record file data extraction, conversion, analysis an
 
 ## logfile_extractor.py
 
-hello, I'm **bold**
+Main data extraction script for pre-processed (unpacked) .csv log-files, following a hierarchy:
+
+project
+│   README.md
+│   file001.txt    
+│
+└───folder1
 
 ### init( )
 
