@@ -1854,6 +1854,37 @@ class MachineLog():
             plt.tight_layout()
             plt.savefig(f'{output_dir}/full_fractional_fluctuation.png', dpi=1000)
         # plt.show()    
+    
+
+    def beam_histos(self):
+        for file in os.listdir(self.df_destination):
+            if file.__contains__(str(self.patient_id)) and file.__contains__('delta') and file.endswith('.csv'):
+                print(f'''Found patient deltaframe '{file}', reading in..''')
+                self.patient_delta_df = pd.read_csv(os.path.join(self.df_destination, file), index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+                break 
+
+        beam_list = self.patient_record_df['BEAM_ID'].drop_duplicates()
+        fig, axs = plt.subplots(2, len(beam_list))
+        for i, beam_id in enumerate(beam_list):
+            beam_df = self.patient_record_df.loc[self.patient_record_df['BEAM_ID'] == beam_id]
+            delta_df = self.patient_delta_df.loc[self.patient_delta_df['BEAM_ID'] == beam_id]
+            plan_x = delta_df['DELTA_X(mm)'].to_numpy() + beam_df['X_POSITION(mm)'].to_numpy()
+            plan_y = delta_df['DELTA_Y(mm)'].to_numpy() + beam_df['Y_POSITION(mm)'].to_numpy()
+            
+            if len(beam_df) != len(delta_df):
+                print(len(beam_df), len(delta_df))
+                continue
+
+            axs[0, i].hist(delta_df['DELTA_X(mm)'], bins=100, label='log-file X')
+            axs[0, i].hist(plan_x - beam_df['X_POSITION_CORR(mm)'].to_numpy(), bins=50, label='log-file X (corrected)')
+            axs[0, i].set_xlim(-2, 2)
+            axs[1, i].hist(delta_df['DELTA_Y(mm)'], bins=100, label='log-file Y')
+            axs[1, i].hist(plan_y - beam_df['Y_POSITION_CORR(mm)'].to_numpy(), bins=50, label='log-file Y (corrected)')
+            axs[1, i].set_xlim(-2, 2)
+        
+        plt.legend()
+        plt.show()
+            
 
 
 if __name__ == '__main__':
@@ -1875,7 +1906,7 @@ if __name__ == '__main__':
     # for patiend_id, log_dir in patients.items():
     #     print(f'\n...STARTING PATIENT {patiend_id}...\n') 
     #     log = MachineLog(log_dir)
-    log.prepare_dataframe()
+    # log.prepare_dataframe()
         # log.prepare_deltaframe()
         
     # log.prepare_qa_dataframe()
@@ -1890,6 +1921,7 @@ if __name__ == '__main__':
     # log.beam_timings()
     # log.delta_correlation_matrix()
     # log.fractional_evolution(all=False)
+    log.beam_histos()
     # sorting_dict = log.spot_sorter(fraction_id=log.fraction_list[0], beam_id=log.patient_record_df['BEAM_ID'].iloc[0])
     pass
 
