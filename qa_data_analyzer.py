@@ -15,34 +15,37 @@ except:
 def plot_qa_beams(qa_df):
     beam_ids = qa_df['BEAM_ID'].drop_duplicates().to_list()
     n_beams = len(beam_ids)
-    # for i in range(int(np.sqrt(n_beams)) - 1, n_beams):
-    #     if n_beams % i == 0:
-    #         rows = i
-    #         cols = int(n_beams / i)
-    #         break
+    for i in range(int(np.sqrt(n_beams)) - 1, n_beams):
+        if n_beams % i == 0:
+            rows = i
+            cols = int(n_beams / i)
+            break
 
-    # # fig, axs = plt.subplots(4, 3, sharex=True, sharey=True, figsize=(20/4, 20/3), dpi=100)  # initiate matrix-like layer plot
-    # fig, axs = plt.subplots(3, 4, sharex=True, sharey=True, figsize=(30/3, 30/4), dpi=100)  # initiate matrix-like layer plot
-    # ax0 = fig.add_subplot(111, frameon=False)
-    # ax0.set_xticks([]), ax0.set_yticks([])
-    # fig.subplots_adjust(hspace=0.0, wspace=0.0)
-    # axs = axs.ravel()
-    # for beam_no, beam_id in enumerate(beam_ids):
-    #     beam_df = qa_df.loc[qa_df['BEAM_ID'] == beam_id]
-    #     axs[beam_no].set_axisbelow(True)
-    #     axs[beam_no].grid(which='major', axis='both')
-    #     axs[beam_no].scatter(beam_df['X_POSITION(mm)'], beam_df['Y_POSITION(mm)'], marker='o', c=beam_df['X_WIDTH(mm)'], s=beam_df['X_WIDTH(mm)'], vmin=7, vmax=19, cmap='inferno')
-    #     lim = 200
-    #     axs[beam_no].set_xlim(-lim, lim)
-    #     axs[beam_no].set_ylim(-lim, lim)
-    #     axs[beam_no].annotate(f'''{beam_df['FRACTION_ID'].iloc[0]} - {beam_df['LAYER_ENERGY(MeV)'].mean():.3f} MeV''', xy=(1.0, 1.0), xycoords='axes points')
+    # fig, axs = plt.subplots(4, 3, sharex=True, sharey=True, figsize=(20/4, 20/3), dpi=100)  # initiate matrix-like layer plot
+    fig, axs = plt.subplots(1, 3, sharex=True, sharey=True, figsize=(8, 3), dpi=100)  # initiate matrix-like layer plot
+    ax0 = fig.add_subplot(111, frameon=False)
+    ax0.set_xticks([]), ax0.set_yticks([])
+    fig.subplots_adjust(hspace=0.0, wspace=0.0)
+    axs = axs.ravel()
+    for beam_no, beam_id in enumerate(beam_ids):
+        if beam_no > 2:
+            break
+
+        beam_df = qa_df.loc[qa_df['BEAM_ID'] == beam_id]
+        axs[beam_no].set_axisbelow(True)
+        axs[beam_no].grid(which='major', axis='both')
+        axs[beam_no].scatter(beam_df['X_POSITION(mm)'], beam_df['Y_POSITION(mm)'], marker='o', c=beam_df['X_WIDTH(mm)'], s=beam_df['X_WIDTH(mm)'], vmin=7, vmax=19, cmap='inferno')
+        lim = 200
+        axs[beam_no].set_xlim(-lim, lim)
+        axs[beam_no].set_ylim(-lim, lim)
+        axs[beam_no].annotate(f'''{beam_df['FRACTION_ID'].iloc[0]} - {beam_df['LAYER_ENERGY(MeV)'].mean():.3f} MeV''', xy=(1.0, 1.0), xycoords='axes points')
         
     
-    # plt.show()
-    # plt.clf()
+    plt.show()
+    plt.clf()
 
-    # qa_dataframe.plot('LAYER_ENERGY(MeV)', 'X_WIDTH(mm)', kind='scatter')
-    # qa_dataframe.plot('LAYER_ENERGY(MeV)', 'Y_WIDTH(mm)', kind='scatter')
+    qa_dataframe.plot('LAYER_ENERGY(MeV)', 'X_WIDTH(mm)', kind='scatter')
+    qa_dataframe.plot('LAYER_ENERGY(MeV)', 'Y_WIDTH(mm)', kind='scatter')
     
     qa_energies = [100., 140., 165., 185., 205., 226.7]
     qa_angles = np.linspace(0., 360., 8, endpoint=False)        
