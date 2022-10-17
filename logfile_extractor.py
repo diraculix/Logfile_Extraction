@@ -10,6 +10,7 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 from tkinter import Tk, filedialog
+from scipy import interpolate
 from matplotlib import pyplot as plt
 
 
@@ -187,8 +188,25 @@ class MachineLog():
 
                     beam_file.close()
 
+                # attempt to find plan dicom and draw snout position
+                for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
+                    for fname in filenames:
+                        if fname.__contains__('RP') and fname.endswith('.dcm') and not fname.__contains__('log'):
+                            ds = pydicom.read_file(os.path.join(path, fname))
+                            for i, beam in enumerate(ds.IonBeamSequence):
+                                if float(beam.IonControlPointSequence[0].GantryAngle) == gantry_angle and len(beam.IonControlPointSequence) == num_layers * 2:
+                                    beam_ds = beam
+
+                has_snout_ext = False
+                try:
+                    snout_ext = beam_ds.IonControlPointSequence[0].SnoutPosition  # extension in mm
+                    has_snout_ext = True
+                except:
+                    snout_ext = np.nan
+
                 with open(beam_config, 'r') as beam_config:  # draw machine parameters from *beam_config.csv
-                    for line in beam_config.readlines():
+                    iso_disp_x, iso_disp_y = [], []
+                    for no, line in enumerate(beam_config.readlines()):
                         if line.__contains__('SAD parameter'):
                             sad_x, sad_y = float(line.split(';')[-1].split(',')[1]), float(line.split(';')[-1].split(',')[0])  # coordinate system switch x <--> y
                         elif line.__contains__('distanceFromIcToIsocenter'):
@@ -197,9 +215,29 @@ class MachineLog():
                             charge_per_mu = float(line.split(';')[-1])
                         elif line.__contains__('Nozzle WET polynomial'):
                             nozzle_wet_poly = [float(x) for x in line.split(';')[-1].split(',')]
+                        
+                        if has_snout_ext:
+                            if line.__contains__('Isodisplacement_snout_extentions'):
+                                columns = [float(s) for s in line.split(';')[-1].split(',')]
+                            elif line.__contains__('Isodisplacement_gantry_angles'):
+                                rows = [float(g) for g in line.split(';')[-1].split(',')]
+                            elif line.__contains__('Isodisplacement_X_'):
+                                iso_disp_x.append([float(dx) for dx in line.split(';')[-1].split(',')])
+                            elif line.__contains__('Isodisplacement_Y_'):
+                                iso_disp_y.append([float(dy) for dy in line.split(';')[-1].split(',')])
+
+                    if has_snout_ext:
+                        iso_disp_x_cubic = interpolate.interp2d(columns, rows, iso_disp_x)
+                        iso_disp_y_cubic = interpolate.interp2d(columns, rows, iso_disp_y)
+                        delta_x_iso = iso_disp_x_cubic(snout_ext, gantry_angle)
+                        delta_y_iso = iso_disp_y_cubic(snout_ext, gantry_angle)
+                    
+                    else:
+                        delta_x_iso, delta_y_iso = np.nan, np.nan
                 
                     ref_pressure, ref_temperature = 1013., 293.  # [hPa, K] standard reference, can also be read from same file
                     correction_factor = (1 / chamber_correction) * (ref_pressure * temperature) / (ref_temperature * pressure)  # why inverse chamber correction?
+
                     beam_config.close()
                 
                 # Source: IBA Particle Therapy 08/22 (Jozef Bokor), universal nozzle WET polynomial coefficients
@@ -303,16 +341,12 @@ class MachineLog():
                             record_file_df['X_WID'], record_file_df['Y_WID'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
                             record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS']].apply(map_x_pos)
                             record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS']].apply(map_y_pos)
+                            record_file_df['X_POSITION_CORR(mm)'] = record_file_df['X_POSITION(mm)'] + delta_y_iso
+                            record_file_df['Y_POSITION_CORR(mm)'] = record_file_df['Y_POSITION(mm)'] + delta_x_iso
                             record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID']].apply(map_x_wid)
                             record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID']].apply(map_y_wid)
                             record_file_df.drop(columns=['X_POS', 'Y_POS', 'X_WID', 'Y_WID'], inplace=True)
                             record_file_df['SQDIST_TO_ISO(mm)'] = np.square(record_file_df['X_POSITION(mm)']) + np.square(record_file_df['Y_POSITION(mm)'])
-                            # new_x_series = (pd.Series(record_file_df['Y_POSITION(mm)']) - ic_offset_x) * sad_x / (sad_x - ictoiso_x) 
-                            # new_y_series = (pd.Series(record_file_df['X_POSITION(mm)']) - ic_offset_y) * sad_y / (sad_y - ictoiso_y)
-                            # new_x_widths = (pd.Series(record_file_df['Y_WIDTH(mm)']) - ic_offset_x) * sad_x / (sad_x - ictoiso_x) 
-                            # new_y_widths = (pd.Series(record_file_df['X_WIDTH(mm)']) - ic_offset_y) * sad_y / (sad_y - ictoiso_y)
-                            # record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)'] = new_x_series, new_y_series
-                            # del new_x_series, new_y_series, new_x_widths, new_y_widths
                         
                             # charge to MU conversion using correction factor
                             record_file_df['MU'] = record_file_df[['ACC_CHARGE(C)']].apply(map_mu)
@@ -1816,7 +1850,7 @@ class MachineLog():
             plt.tight_layout()
             plt.savefig(f'{output_dir}/{self.patient_id}_fractional_fluctuation.png', dpi=1000)
         else:
-            plt.title('Delivery fluctuation of spot position (all patients)', fontweight='bold')
+            plt.title('Delivery fluctuation of spot position (all test patients)', fontweight='bold')
             plt.tight_layout()
             plt.savefig(f'{output_dir}/full_fractional_fluctuation.png', dpi=1000)
         # plt.show()    
@@ -1841,10 +1875,10 @@ if __name__ == '__main__':
     # for patiend_id, log_dir in patients.items():
     #     print(f'\n...STARTING PATIENT {patiend_id}...\n') 
     #     log = MachineLog(log_dir)
-    #     log.prepare_dataframe()
+    log.prepare_dataframe()
         # log.prepare_deltaframe()
         
-    log.prepare_qa_dataframe()
+    # log.prepare_qa_dataframe()
     # log.plot_beam_layers()    
     # log.plot_spot_statistics()
     # log.prepare_deltaframe()
@@ -1855,7 +1889,7 @@ if __name__ == '__main__':
     # log.plan_creator(fraction='last', mode='all')
     # log.beam_timings()
     # log.delta_correlation_matrix()
-    # log.fractional_evolution(all=True)
+    # log.fractional_evolution(all=False)
     # sorting_dict = log.spot_sorter(fraction_id=log.fraction_list[0], beam_id=log.patient_record_df['BEAM_ID'].iloc[0])
     pass
 
