@@ -14,14 +14,14 @@ from scipy import interpolate
 from matplotlib import pyplot as plt
 
 
+output_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\output'  # TO BE CHANGED
+if not os.path.isdir(os.path.join(output_dir, '..')):
+    output_dir = r'/home/luke/Logfile_Extraction/output'
+
 try:
-    output_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\output'  # TO BE CHANGED
-    current_dir = os.getcwd()
-    os.chdir(output_dir)
-    os.chdir(current_dir)
-    del current_dir
+    os.mkdir(output_dir)
 except:
-    output_dir = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\output'
+    pass
 
 
 class MachineLog():
@@ -31,7 +31,7 @@ class MachineLog():
             root = Tk()
             self.logfile_dir = root_dir  # open logfile root directory, which contains one dir per fraction
             root.destroy()
-            if self.logfile_dir == '':
+            if self.logfile_dir == '' or str(self.logfile_dir) == '()':
                 sys.exit('/x\ No directory selected, exiting..')
             for index, element in enumerate(os.listdir(self.logfile_dir)):
                 if not os.path.isdir(os.path.join(self.logfile_dir, element)):
@@ -40,14 +40,14 @@ class MachineLog():
                 elif index == len(os.listdir(self.logfile_dir)) - 1:
                     valid_dir = True
         
+        self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'  # TO BE CHANGED
+        if not os.path.isdir(os.path.join(self.df_destination, '..')):
+            self.df_destination = r'/home/luke/Logfile_Extraction/dataframes'
+        
         try:
-            self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'  # TO BE CHANGED
-            current_dir = os.getcwd()
-            os.chdir(self.df_destination)
-            os.chdir(current_dir)
-            del current_dir
+            os.mkdir(self.df_destination)
         except:
-            self.df_destination = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\dataframes'
+            pass
             
         self.fraction_list = os.listdir(self.logfile_dir)
         self.num_fractions = len(self.fraction_list)
@@ -1888,42 +1888,43 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    root = Tk()
-    log= MachineLog(filedialog.askdirectory())
-    root.destroy()
-    # log = MachineLog(r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\1588055\Logfiles')
-    # log = MachineLog(r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\1676348\Logfiles')
-    # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction'
-    # root_dir =r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile'
-    # patients = {}
-    # print('Searching for log-file directories with existent plans..')
-    # for root, dir, files in os.walk(root_dir):
-    #     if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
-    #         patient_id = root.split('\\')[-1]
-    #         print(f'''  Found {patient_id}''')
-    #         patients[patient_id] = os.path.join(root, 'Logfiles')
+	root = Tk()
+	log= MachineLog(filedialog.askdirectory())
+	root.destroy()
+	# log = MachineLog(r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\1588055\Logfiles')
+	# log = MachineLog(r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\1676348\Logfiles')
+	# root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction'
+	# root_dir =r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile'
+	root_dir = r'/home/luke/Logfile_Extraction/Logfiles'
+	patients = {}
+	print('Searching for log-file directories with existent plans..')
+	for root, dir, files in os.walk(root_dir):
+		if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
+			patient_id = root.split('\\')[-1]
+			print(f'''  Found {patient_id}''')
+			patients[patient_id] = os.path.join(root, 'Logfiles')
 
-    # for patiend_id, log_dir in patients.items():
-    #     print(f'\n...STARTING PATIENT {patiend_id}...\n') 
-    #     log = MachineLog(log_dir)
-    # log.prepare_dataframe()
-        # log.prepare_deltaframe()
-        
-    # log.prepare_qa_dataframe()
-    # log.plot_beam_layers()    
-    # log.plot_spot_statistics()
-    # log.prepare_deltaframe()
-    # log.delta_dependencies()
-    # log.dicom_finder('20200604', '07', True)
-    # for mode in ['all', 'pos', 'mu']:
-    #     log.plan_creator(fraction='last', mode=mode)
-    # log.plan_creator(fraction='last', mode='all')
-    # log.beam_timings()
-    # log.delta_correlation_matrix()
-    # log.fractional_evolution(all=False)
-    log.beam_histos()
-    # sorting_dict = log.spot_sorter(fraction_id=log.fraction_list[0], beam_id=log.patient_record_df['BEAM_ID'].iloc[0])
-    pass
+	for patiend_id, log_dir in patients.items():
+		print(f'\n...STARTING PATIENT {patiend_id}...\n')
+		log = MachineLog(log_dir)
+		log.prepare_dataframe()
+		log.prepare_deltaframe()
+
+	# log.prepare_qa_dataframe()
+	# log.plot_beam_layers()
+	# log.plot_spot_statistics()
+	# log.prepare_deltaframe()
+	# log.delta_dependencies()
+	# log.dicom_finder('20200604', '07', True)
+	# for mode in ['all', 'pos', 'mu']:
+	#     log.plan_creator(fraction='last', mode=mode)
+	# log.plan_creator(fraction='last', mode='all')
+	# log.beam_timings()
+	# log.delta_correlation_matrix()
+	# log.fractional_evolution(all=False)
+	# log.beam_histos()
+	# sorting_dict = log.spot_sorter(fraction_id=log.fraction_list[0], beam_id=log.patient_record_df['BEAM_ID'].iloc[0])
+	pass
 
 else:
-    print('>> Module', __name__, 'loaded')
+	print('>> Module', __name__, 'loaded')
