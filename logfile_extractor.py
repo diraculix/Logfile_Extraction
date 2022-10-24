@@ -41,20 +41,18 @@ class MachineLog():
                     valid_dir = True
         
         self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'  # TO BE CHANGED
-        if not os.path.isdir(os.path.join(self.df_destination, '..')):
+        if not os.path.isdir(os.path.join(self.df_destination, '..')):            
             self.df_destination = r'/home/luke/Logfile_Extraction/dataframes'
         
-        try:
-            os.mkdir(self.df_destination)
-        except:
-            pass
-            
-        self.fraction_list = os.listdir(self.logfile_dir)
+        try: os.mkdir(self.df_destination)
+        except: pass
+      
+        self.fraction_list = sorted(os.listdir(self.logfile_dir))
         self.num_fractions = len(self.fraction_list)
         self.beam_list = []
         for f in self.fraction_list:
             beams_in_frac = []
-            for dir in os.listdir(os.path.join(self.logfile_dir, f)):
+            for dir in sorted(os.listdir(os.path.join(self.logfile_dir, f))):
                 if os.path.isdir(os.path.join(self.logfile_dir, f, dir)):
                     beams_in_frac.append(dir)
             self.beam_list.append(beams_in_frac)
@@ -150,13 +148,13 @@ class MachineLog():
                 os.chdir(current_beam_path)
                 while len(os.listdir('.')) <= 3:
                     try:
-                        os.chdir(os.listdir('.')[0])  # navigate through nested logfile dir structure (possibly risky)
+                        os.chdir(sorted(os.listdir('.'))[0])  # navigate through nested logfile dir structure (possibly risky)
                     except OSError:
                         print(f'  /!\ No directory to enter in {os.getcwd()}, staying here..')
                         break
 
                 map_records, tunings, record_specifs, tuning_specifs = [], [], [], []  # get file lists
-                for file in os.listdir('.'):
+                for file in sorted(os.listdir('.')):
                     if file.__contains__('beam.'):
                         beam_file = file
                     elif file.__contains__('beam_config.'):
@@ -580,13 +578,13 @@ class MachineLog():
                 os.chdir(current_beam_path)
                 while len(os.listdir('.')) <= 3:
                     try:
-                        os.chdir(os.listdir('.')[0])  # navigate through nested logfile dir structure (possibly risky)
+                        os.chdir(sorted(os.listdir('.'))[0])  # navigate through nested logfile dir structure (possibly risky)
                     except OSError:
                         print(f'  /!\ No directory to enter in {os.getcwd()}, staying here..')
                         break
 
                 map_records, record_specifs = [], []  # get file lists
-                for file in os.listdir('.'):
+                for file in sorted(os.listdir('.')):
                     if file.__contains__('beam.'):
                         beam_file = file
                     elif file.__contains__('beam_config.'):
@@ -1135,7 +1133,7 @@ class MachineLog():
 
 
     def prepare_deltaframe(self):
-        for df_file in os.listdir(self.df_destination):
+        for df_file in sorted(os.listdir(self.df_destination)):
             if df_file.__contains__('delta') and df_file.__contains__(str(self.patient_id)) and df_file.endswith('.csv'):
                 re_init = input(f'''Found existing patient deltaframe '{df_file}', re-initialize [y/n]? ''')
                 if re_init == 'y':
@@ -1282,7 +1280,7 @@ class MachineLog():
 
     def delta_correlation_matrix(self):
         other_records, other_deltas = [], []
-        for file in os.listdir(self.df_destination):
+        for file in sorted(os.listdir(self.df_destination)):
             if file.__contains__(str(self.patient_id)) and file.__contains__('delta') and file.endswith('.csv'):
                 print(f'''Found patient deltaframe '{file}', reading in..''')
                 self.patient_delta_df = pd.read_csv(os.path.join(self.df_destination, file), index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
@@ -1350,7 +1348,7 @@ class MachineLog():
 
 
     def delta_dependencies(self):
-        for file in os.listdir(self.df_destination):
+        for file in sorted(os.listdir(self.df_destination)):
             if file.__contains__(str(self.patient_id)) and file.__contains__('delta') and file.endswith('.csv'):
                 print(f'''Found patient deltaframe '{file}', reading in..''')
                 self.patient_delta_df = pd.read_csv(os.path.join(self.df_destination, file), index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
@@ -1419,7 +1417,7 @@ class MachineLog():
             plt.show()            
         
         if choice == 2:  # gantry angle vs. delta(x,y)
-            other_dfs = [pd.read_csv(os.path.join(self.df_destination, file), index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str}) for file in os.listdir(self.df_destination) if file.__contains__('delta') and file.endswith('.csv')]
+            other_dfs = [pd.read_csv(os.path.join(self.df_destination, file), index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str}) for file in sorted(os.listdir(self.df_destination)) if file.__contains__('delta') and file.endswith('.csv')]
             print('  Concatenating existent patient dataframes..')
             concat_df = pd.concat([df for df in other_dfs])
             
@@ -1776,7 +1774,7 @@ class MachineLog():
 
     def fractional_evolution(self, all=False):
         other_records = []
-        for file in os.listdir(self.df_destination):
+        for file in sorted(os.listdir(self.df_destination)):
             if file.__contains__('records') and file.endswith('.csv') and not file.__contains__('qa'):
                 other_records.append(os.path.join(self.df_destination, file))
 
@@ -1833,7 +1831,7 @@ class MachineLog():
                         print('help')                
 
                 if not all:
-                    plt.errorbar(x=date_axis, y=fx_dist_means, yerr=None, fmt='o-', capsize=3, label=beam_id)
+                    plt.errorbar(x=sorted(date_axis), y=fx_dist_means, yerr=None, fmt='o-', capsize=3, label=beam_id)
                 else:
                     plt.errorbar(x=date_axis, y=fx_dist_means, yerr=None, fmt='o', capsize=3,  color='black', markersize=2, label=beam_id)
 
@@ -1857,7 +1855,7 @@ class MachineLog():
     
 
     def beam_histos(self):
-        for file in os.listdir(self.df_destination):
+        for file in sorted(os.listdir(self.df_destination)):
             if file.__contains__(str(self.patient_id)) and file.__contains__('delta') and file.endswith('.csv'):
                 print(f'''Found patient deltaframe '{file}', reading in..''')
                 self.patient_delta_df = pd.read_csv(os.path.join(self.df_destination, file), index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
@@ -1888,30 +1886,30 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-	root = Tk()
-	log= MachineLog(filedialog.askdirectory())
-	root.destroy()
-	# log = MachineLog(r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\1588055\Logfiles')
-	# log = MachineLog(r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\1676348\Logfiles')
 	# root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction'
-	# root_dir =r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile'
-	root_dir = r'/home/luke/Logfile_Extraction/Logfiles'
-	patients = {}
-	print('Searching for log-file directories with existent plans..')
-	for root, dir, files in os.walk(root_dir):
-		if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
-			patient_id = root.split('\\')[-1]
-			print(f'''  Found {patient_id}''')
-			patients[patient_id] = os.path.join(root, 'Logfiles')
+    root_dir = r'/home/luke/Logfile_Extraction/Logfiles/1588055/Logfiles'
+    
+    # root = Tk()
+    # root_dir = filedialog.askdirectory()
+    # root.destroy()
+    
+    # patients = {}
+    # print('Searching for log-file directories with existent plans..')
+    # for root, dir, files in os.walk(root_dir):
+    #     if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
+    #         patient_id = root.split('\\')[-1]
+    #         print(f'''  Found {patient_id}''')
+    #         patients[patient_id] = os.path.join(root, 'Logfiles')
 
-	for patiend_id, log_dir in patients.items():
-		print(f'\n...STARTING PATIENT {patiend_id}...\n')
-		log = MachineLog(log_dir)
-		log.prepare_dataframe()
-		log.prepare_deltaframe()
+    # for patiend_id, log_dir in patients.items():
+    #     print(f'\n...STARTING PATIENT {patiend_id}...\n')
+    #     log = MachineLog(log_dir)
+    #     log.prepare_dataframe()
+    #     log.prepare_deltaframe()
 
-	# log.prepare_qa_dataframe()
-	# log.plot_beam_layers()
+    log = MachineLog(root_dir)
+    # log.prepare_qa_dataframe()
+    # log.plot_beam_layers()
 	# log.plot_spot_statistics()
 	# log.prepare_deltaframe()
 	# log.delta_dependencies()
@@ -1921,10 +1919,8 @@ if __name__ == '__main__':
 	# log.plan_creator(fraction='last', mode='all')
 	# log.beam_timings()
 	# log.delta_correlation_matrix()
-	# log.fractional_evolution(all=False)
-	# log.beam_histos()
-	# sorting_dict = log.spot_sorter(fraction_id=log.fraction_list[0], beam_id=log.patient_record_df['BEAM_ID'].iloc[0])
-	pass
+    log.fractional_evolution(all=False)
+    log.beam_histos()
 
 else:
 	print('>> Module', __name__, 'loaded')
