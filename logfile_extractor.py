@@ -1278,7 +1278,7 @@ class MachineLog():
         print('Complete')
 
 
-    def delta_correlation_matrix(self):
+    def delta_correlation_matrix(self, gtr_only=True):
         other_records, other_deltas = [], []
         for file in sorted(os.listdir(self.df_destination)):
             if file.__contains__(str(self.patient_id)) and file.__contains__('delta') and file.endswith('.csv'):
@@ -1308,8 +1308,8 @@ class MachineLog():
             for this_delta in other_deltas:
                 this_delta_id = this_delta.split('\\')[-1].split('_')[1]
                 if this_patient_id == this_delta_id:
-                    this_record_df = pd.read_csv(this_record, index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str, 'GANTRY_ANGLE':str})
-                    this_joint_df = pd.read_csv(this_delta, index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str,'GANTRY_ANGLE':str})
+                    this_record_df = pd.read_csv(this_record, index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+                    this_joint_df = pd.read_csv(this_delta, index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
                     has_delta = True
                     break
 
@@ -1317,34 +1317,45 @@ class MachineLog():
                 print(f'  /!\ No deltaframe found for patient-ID {this_patient_id}, skipping..')
                 continue
 
-            if this_record_df.shape[0] == this_joint_df.shape[0]:
-                this_joint_df.drop(columns=to_drop, inplace=True)
-                this_joint_df['LAYER_ENERGY(MeV)'] = this_record_df['LAYER_ENERGY(MeV)'].to_list()
-                this_joint_df['MU'] = this_record_df['MU'].to_list()
-                this_joint_df['X_POSITION(mm)'] = this_record_df['X_POSITION(mm)'].to_list()
-                this_joint_df['Y_POSITION(mm)'] = this_record_df['Y_POSITION(mm)'].to_list()
-                this_joint_df['X_WIDTH(mm)'] = this_record_df['X_WIDTH(mm)'].to_list()
-                this_joint_df['Y_WIDTH(mm)'] = this_record_df['Y_WIDTH(mm)'].to_list()
-                this_joint_df['PRESSURE(hPa)'] = this_record_df['PRESSURE(hPa)'].to_list()
-                this_joint_df['TEMPERATURE(K)'] = this_record_df['TEMPERATURE(K)'].to_list()
-                # this_joint_df['SQDIST_TO_ISO(mm)'] = this_record_df['SQDIST_TO_ISO(mm)'].to_list()
-                this_joint_df['DIST_TO_ISO(mm)'] = np.sqrt(this_record_df['SQDIST_TO_ISO(mm)'].to_numpy())
-                to_concat.append(this_joint_df)
+            if not gtr_only:
+                if this_record_df.shape[0] == this_joint_df.shape[0]:
+                    this_joint_df.drop(columns=to_drop, inplace=True)
+                    this_joint_df['LAYER_ENERGY(MeV)'] = this_record_df['LAYER_ENERGY(MeV)'].to_list()
+                    this_joint_df['MU'] = this_record_df['MU'].to_list()
+                    this_joint_df['X_POSITION(mm)'] = this_record_df['X_POSITION(mm)'].to_list()
+                    this_joint_df['Y_POSITION(mm)'] = this_record_df['Y_POSITION(mm)'].to_list()
+                    this_joint_df['X_WIDTH(mm)'] = this_record_df['X_WIDTH(mm)'].to_list()
+                    this_joint_df['Y_WIDTH(mm)'] = this_record_df['Y_WIDTH(mm)'].to_list()
+                    this_joint_df['PRESSURE(hPa)'] = this_record_df['PRESSURE(hPa)'].to_list()
+                    this_joint_df['TEMPERATURE(K)'] = this_record_df['TEMPERATURE(K)'].to_list()
+                    # this_joint_df['SQDIST_TO_ISO(mm)'] = this_record_df['SQDIST_TO_ISO(mm)'].to_list()
+                    this_joint_df['DIST_TO_ISO(mm)'] = np.sqrt(this_record_df['SQDIST_TO_ISO(mm)'].to_numpy())
+                    to_concat.append(this_joint_df)
+                else:
+                    print(f'  /!\ Dataframe shapes do not match [{this_record_df.shape} vs. {this_joint_df.shape}], skipping patient-ID {this_patient_id}..')
+                    continue
+            
             else:
-                print(f'  /!\ Dataframe shapes do not match [{this_record_df.shape} vs. {this_joint_df.shape}], skipping patient-ID {this_patient_id}..')
-                continue
+                this_joint_df.drop(columns=to_drop, inplace=True)
+                to_concat.append(this_joint_df)
         
         joint_df = pd.concat(to_concat, ignore_index=True)
-        corr_matrix = joint_df.corr(method='pearson')
-        fig, ax = plt.subplots(1, 1, figsize=(16, 10))
-        sns.heatmap(corr_matrix, annot=True, cmap='icefire', vmin=-1.0, vmax=1.0)
+        # corr_matrix = joint_df.corr(method='pearson')
+        # fig, ax = plt.subplots(1, 1, figsize=(16, 10))
+        # sns.heatmap(corr_matrix, annot=True, cmap='icefire', vmin=-1.0, vmax=1.0)
+        # plt.tight_layout()
+        # plt.savefig(f'{output_dir}/{self.patient_id}_correlation_matrix.png', dpi=150)
+        # plt.clf()
+        # fig, ax = plt.subplots(1, 1, figsize=(15, 15))
+        # sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'DELTA_MU', 'MU', 'LAYER_ENERGY(MeV)', 'DIST_TO_ISO(mm)'], hue='GANTRY_ANGLE')
+        try:
+            g = sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'LAYER_ENERGY(MeV)', 'MU', 'DIST_TO_ISO(mm)', 'GANTRY_ANGLE'], plot_kws=dict(s=10, edgecolor=None, alpha=0.3), corner=True)      
+        except:
+            g = sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'LAYER_ENERGY(MeV)', 'MU', 'DIST_TO_ISO(mm)', 'GANTRY_ANGLE'], plot_kws=dict(s=10, edgecolor=None, alpha=0.3))      
+        # g._legend.remove()
+        plt.legend(bbox_to_anchor=(1, 1))
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/{self.patient_id}_correlation_matrix.png', dpi=150)
-        plt.clf()
-        fig, ax = plt.subplots(1, 1, figsize=(15, 15))
-        sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'DELTA_MU', 'MU', 'LAYER_ENERGY(MeV)', 'DIST_TO_ISO(mm)'], hue='GANTRY_ANGLE')
-        plt.tight_layout()
-        plt.savefig(f'{output_dir}/pairplot_all.png', dpi=1000)
+        plt.savefig(f'{output_dir}/pairplot.png', dpi=1000)
 
 
     def delta_dependencies(self):
@@ -1862,7 +1873,9 @@ class MachineLog():
                 break 
 
         beam_list = self.patient_record_df['BEAM_ID'].drop_duplicates()
-        fig, axs = plt.subplots(2, len(beam_list))
+        fig, axs = plt.subplots(2, len(beam_list), figsize=(30, 10), dpi=80)
+        ax0 = fig.add_subplot(111, frameon=False)
+        ax0.set_xticks([]), ax0.set_yticks([])
         for i, beam_id in enumerate(beam_list):
             beam_df = self.patient_record_df.loc[self.patient_record_df['BEAM_ID'] == beam_id]
             delta_df = self.patient_delta_df.loc[self.patient_delta_df['BEAM_ID'] == beam_id]
@@ -1872,27 +1885,32 @@ class MachineLog():
             if len(beam_df) != len(delta_df):
                 print(len(beam_df), len(delta_df))
                 continue
-
-            axs[0, i].hist(delta_df['DELTA_X(mm)'], bins=100, label='log-file X')
-            axs[0, i].hist(plan_x - beam_df['X_POSITION_CORR(mm)'].to_numpy(), bins=50, label='log-file X (corrected)')
+            
+            bins = 80
+            axs[0, i].hist(delta_df['DELTA_X(mm)'], bins=bins, label='log-file X')
+            axs[0, i].hist(plan_x - beam_df['X_POSITION_CORR(mm)'].to_numpy(), bins=bins, label='log-file X\n(corrected for iso shift)', alpha=0.5)
             axs[0, i].set_xlim(-2, 2)
-            axs[1, i].hist(delta_df['DELTA_Y(mm)'], bins=100, label='log-file Y')
-            axs[1, i].hist(plan_y - beam_df['Y_POSITION_CORR(mm)'].to_numpy(), bins=50, label='log-file Y (corrected)')
+            axs[0, i].annotate(f'BEAM {beam_id}', xy=(1.,1.), xycoords='axes points')
+            axs[1, i].hist(delta_df['DELTA_Y(mm)'], bins=bins, label='log-file Y')
+            axs[1, i].hist(plan_y - beam_df['Y_POSITION_CORR(mm)'].to_numpy(), bins=bins, label='log-file Y\n(corrected for iso shift)', alpha=0.5)
             axs[1, i].set_xlim(-2, 2)
+            axs[1, i].annotate(f'BEAM {beam_id}', xy=(1.,1.), xycoords='axes points')
         
-        plt.legend()
-        plt.show()
+        axs[0, -1].legend()
+        axs[1, -1].legend()
+        plt.title(f'Positional difference to plan (patient-ID {self.patient_id})', fontweight='bold')
+        plt.savefig(f'{output_dir}/{self.patient_id}_gtr_corrected_hist.png', dpi=600)
+        plt.clf()
             
 
 
 if __name__ == '__main__':
-	# root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction'
-    root_dir = r'/home/luke/Logfile_Extraction/Logfiles/1588055/Logfiles'
-    
+    root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBIL001_671075/Logfiles'
+    # root_dir = r'/home/luke/Logfile_Extraction/Logfiles/671075/Logfiles'
     # root = Tk()
     # root_dir = filedialog.askdirectory()
     # root.destroy()
-    
+
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
     # for root, dir, files in os.walk(root_dir):
@@ -1900,27 +1918,16 @@ if __name__ == '__main__':
     #         patient_id = root.split('\\')[-1]
     #         print(f'''  Found {patient_id}''')
     #         patients[patient_id] = os.path.join(root, 'Logfiles')
-
     # for patiend_id, log_dir in patients.items():
     #     print(f'\n...STARTING PATIENT {patiend_id}...\n')
     #     log = MachineLog(log_dir)
     #     log.prepare_dataframe()
     #     log.prepare_deltaframe()
-
     log = MachineLog(root_dir)
-    # log.prepare_qa_dataframe()
-    # log.plot_beam_layers()
-	# log.plot_spot_statistics()
-	# log.prepare_deltaframe()
-	# log.delta_dependencies()
-	# log.dicom_finder('20200604', '07', True)
-	# for mode in ['all', 'pos', 'mu']:
-	#     log.plan_creator(fraction='last', mode=mode)
-	# log.plan_creator(fraction='last', mode='all')
-	# log.beam_timings()
-	# log.delta_correlation_matrix()
-    log.fractional_evolution(all=False)
-    log.beam_histos()
+    # log.beam_histos()
+    # log.delta_dependencies()
+    # log.fractional_evolution(all=False)
+    log.delta_correlation_matrix(gtr_only=False)
 
 else:
-	print('>> Module', __name__, 'loaded')
+    print('>> Module', __name__, 'loaded')
