@@ -811,9 +811,13 @@ class MachineLog():
                                 found = True
                             
         while not found:  # open dicom file manually if failed
+            if not verbose:
+                return None
+
             root = Tk()
             print(f'    /!\ Auto-location failed for beam-ID {beam_id} in fraction-ID {fraction_id}, select plan DICOM..')
             plan_dcm = filedialog.askopenfilename(initialdir=os.path.join(self.logfile_dir, '..'))
+            root.destroy()
             if plan_dcm == '':
                 print('    /x\ Process cancelled by user')
                 return None
@@ -823,8 +827,6 @@ class MachineLog():
                 if float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:
                     beam_ds = beam
                     found = True
-            
-            root.destroy()
         
         return plan_dcm, beam_ds
 
@@ -1157,102 +1159,102 @@ class MachineLog():
         for f, fx_id in enumerate(self.patient_record_df['FRACTION_ID'].drop_duplicates()):
             fraction_df = self.patient_record_df.loc[self.patient_record_df['FRACTION_ID'] == fx_id]
             for beam_id in fraction_df['BEAM_ID'].drop_duplicates():
+                has_plan = False
                 try:    
                     plan_dcm, beam_ds = self.dicom_finder(fraction_id=fx_id, beam_id=beam_id, verbose=False)
-                    beam_df = self.patient_record_df.loc[(self.patient_record_df['FRACTION_ID'] == fx_id)]
+                    has_plan = True
                 except:
-                    print(f'  /!\ No plan dicom found for beam-ID {beam_id} in fraction-ID {fx_id}, proceeding..')
-                    continue
+                    print(f'''  /!\ No plan dicom found for beam-ID {beam_id} in fraction-ID {fx_id}, setting NaN's..''')
 
-                for bid in beam_df['BEAM_ID'].drop_duplicates():
-                    if str(bid).__contains__(str(beam_id)) or str(beam_id).__contains__(str(bid)):
-                        beam_df = beam_df.loc[beam_df['BEAM_ID'] == bid]
-                        break
-
+                # for bid in beam_df['BEAM_ID'].drop_duplicates():
+                #     if str(bid).__contains__(str(beam_id)) or str(beam_id).__contains__(str(bid)):
+                #         beam_df = beam_df.loc[beam_df['BEAM_ID'] == bid]
+                #         break
+                beam_df = fraction_df.loc[fraction_df['BEAM_ID'] == beam_id]
                 num_layers = beam_df['TOTAL_LAYERS'].iloc[0]
+                gtr_angle = float(beam_df['GANTRY_ANGLE'].iloc[0])
 
                 for layer_id in beam_df['LAYER_ID'].drop_duplicates():
-                    try:
-                        plan_layer = beam_ds.IonControlPointSequence[layer_id * 2]
-                    except IndexError:
-                        print(f'''  /!\ Layer-ID mismatch, skipping layer #{layer_id + 1} in beam {beam_id}, fraction {fx_id}''')
-                        continue
+                    log_layer = beam_df.loc[beam_df['LAYER_ID'] == layer_id]
+                    layer_missing = False
+                    if has_plan:
+                        try:
+                            plan_layer = beam_ds.IonControlPointSequence[layer_id * 2]
+                        except IndexError:
+                            print(f'''  /!\ Layer-ID mismatch, skipping layer #{layer_id + 1} in beam {beam_id}, fraction {fx_id}''')
+                            layer_missing = True
+                        
+                        if not layer_missing:
+                            plan_spotmap = plan_layer.ScanSpotPositionMap
+                            plan_x, plan_y = [], []
+                            for i, spot in enumerate(plan_spotmap):
+                                if i % 2 == 0:
+                                    plan_x.append(spot)
+                                else:
+                                    plan_y.append(spot)
+                            plan_xy = [tup for tup in zip(plan_x, plan_y)]
+                            plan_e = plan_layer.NominalBeamEnergy
+                            try:
+                                plan_mu = [mu for mu in plan_layer.ScanSpotMetersetWeights]
+                            except TypeError:
+                                plan_mu = [plan_layer.ScanSpotMetersetWeights]
 
-                    plan_spotmap = plan_layer.ScanSpotPositionMap
-                    plan_x, plan_y = [], []
-                    for i, spot in enumerate(plan_spotmap):
-                        if i % 2 == 0:
-                            plan_x.append(spot)
-                        else:
-                            plan_y.append(spot)
-                    plan_xy = [tup for tup in zip(plan_x, plan_y)]
-                    plan_e = plan_layer.NominalBeamEnergy
-                    try:
-                        plan_mu = [mu for mu in plan_layer.ScanSpotMetersetWeights]
-                    except TypeError:
-                        plan_mu = [plan_layer.ScanSpotMetersetWeights]
+                            log_xy = [tup for tup in zip(log_layer['X_POSITION(mm)'], log_layer['Y_POSITION(mm)'])]
+                            log_mu, log_e = log_layer['MU'], log_layer['LAYER_ENERGY(MeV)'].iloc[0]
+                            log_xy_sorted = [(np.nan, np.nan) for _ in range(max(len(log_xy), len(plan_xy)))]
+                            log_mu_sorted = [np.nan for _ in log_xy_sorted]
 
-                    log_layer = beam_df.loc[(beam_df['LAYER_ID'] == layer_id) & (beam_df['FRACTION_ID'] == fx_id)]
-                    log_xy = [tup for tup in zip(log_layer['X_POSITION(mm)'], log_layer['Y_POSITION(mm)'])]
-                    log_mu, log_e = log_layer['MU'], log_layer['LAYER_ENERGY(MeV)'].iloc[0]
-                    log_xy_sorted = [(np.nan, np.nan) for _ in range(max(len(log_xy), len(plan_xy)))]
-                    log_mu_sorted = [np.nan for _ in log_xy_sorted]
+                            delta_x, delta_y, delta_mu = [], [], []
+                            delta_e = plan_e - log_e.mean()
 
-                    delta_x, delta_y, delta_mu = [], [], []
-                    delta_e = plan_e - log_e.mean()
+                            # match (x,y)-positions to plan, transform MU list equally
+                            for i, log_spot in enumerate(log_xy):
+                                shifts = [np.array(plan_spot) - np.array(log_spot) for plan_spot in plan_xy]
+                                dists = [np.abs((shift).dot(shift)) for shift in shifts]
+                                index = dists.index(min(dists))
+                                dx, dy = shifts[index]
+                                delta_x.append(dx), delta_y.append(dy)
+                                delta_mu.append(plan_mu[index] - log_mu[i])
+                                log_xy_sorted[index] = log_xy[i]
+                                log_mu_sorted[index] = log_mu[i]
 
-                    # match (x,y)-positions to plan, transform MU list equally
-                    for i, log_spot in enumerate(log_xy):
-                        shifts = [np.array(plan_spot) - np.array(log_spot) for plan_spot in plan_xy]
-                        dists = [np.abs((shift).dot(shift)) for shift in shifts]
-                        index = dists.index(min(dists))
-                        dx, dy = shifts[index]
-                        delta_x.append(dx), delta_y.append(dy)
-                        delta_mu.append(plan_mu[index] - log_mu[i])
-                        log_xy_sorted[index] = log_xy[i]
-                        log_mu_sorted[index] = log_mu[i]
-
-                    dropped = 0
-                    for i, xy in enumerate(log_xy_sorted):
-                        if xy == (np.nan, np.nan) :
-                            log_xy_sorted.remove(xy)
-                            log_mu_sorted.remove(log_mu_sorted[i])
-                            dropped += 1
-                    
-                    if dropped > 1:
-                        print(f'Dropped {dropped} spots | fx-ID {fx_id} | beam-ID {beam_id} | layer-ID {layer_id}')
-                        # plt.plot(*zip(*plan_xy), marker='x', ls='-', color='tab:blue', label='plan')
-                        # plt.plot(*zip(*log_xy), marker='o', ls='--', color='tab:grey', label='log')
-                        # plt.plot(*zip(*log_xy_sorted), marker='o', ls='-', color='black', label='sorted')
-                        # plt.legend()
-                        # plt.show()
-                        print(f'  /!\ Log beam {beam_id} spots do not match plan beam {beam_ds.BeamName}')
+                            dropped = 0
+                            for i, xy in enumerate(log_xy_sorted):
+                                if xy == (np.nan, np.nan) :
+                                    log_xy_sorted.remove(xy)
+                                    log_mu_sorted.remove(log_mu_sorted[i])
+                                    dropped += 1
+                            
+                            if dropped > 1:
+                                print(f'Dropped {dropped} spots | fx-ID {fx_id} | beam-ID {beam_id} | layer-ID {layer_id}')
+                                # plt.plot(*zip(*plan_xy), marker='x', ls='-', color='tab:blue', label='plan')
+                                # plt.plot(*zip(*log_xy), marker='o', ls='--', color='tab:grey', label='log')
+                                # plt.plot(*zip(*log_xy_sorted), marker='o', ls='-', color='black', label='sorted')
+                                # plt.legend()
+                                # plt.show()
+                                print(f'  /!\ Log beam {beam_id} spots do not match plan beam {beam_ds.BeamName}')
 
                     # generate new dataframe 
                     fx_delta_df = pd.DataFrame(columns=self.patient_delta_df.columns)
-                    try:
-                        fx_delta_df['UNIQUE_INDEX'] = [log_mu_sorted.index(i) + unique_index for i in log_mu]
-                    except ValueError:
-                        print('  /!\ Sorting error: Lengths are (planned, log, sorted):', len(plan_mu), len(log_mu), len(log_mu_sorted))
-                        continue
-
+                    fx_delta_df['UNIQUE_INDEX'] = np.array(range(len(log_layer))) + unique_index
                     fx_delta_df.index = fx_delta_df['UNIQUE_INDEX']
                     fx_delta_df.sort_index(inplace=True)
                     fx_delta_df.drop(columns=['UNIQUE_INDEX'], inplace=True)
-
-                    fx_delta_df['DELTA_X(mm)'] = delta_x
-                    fx_delta_df['DELTA_Y(mm)'] = delta_y
-                    fx_delta_df['DELTA_MU'] = delta_mu
-                    fx_delta_df['DELTA_E(MeV)'] = delta_e
                     fx_delta_df['LAYER_ID'] = layer_id
-                    fx_delta_df['SPOT_ID'] = [id for id in range(len(delta_x))]
+                    fx_delta_df['SPOT_ID'] = [id for id in range(len(fx_delta_df))]
                     fx_delta_df['FRACTION_ID'] = fx_id
                     fx_delta_df['BEAM_ID'] = beam_id
-                    fx_delta_df['GANTRY_ANGLE'] = float(beam_ds.IonControlPointSequence[0].GantryAngle)
-                    fx_delta_df['TOTAL_LAYERS'] = int(beam_df['TOTAL_LAYERS'].mean())
+                    fx_delta_df['GANTRY_ANGLE'] = gtr_angle
+                    fx_delta_df['TOTAL_LAYERS'] = num_layers
+
+                    if has_plan and not layer_missing:
+                        fx_delta_df['DELTA_X(mm)'] = delta_x
+                        fx_delta_df['DELTA_Y(mm)'] = delta_y
+                        fx_delta_df['DELTA_MU'] = delta_mu
+                        fx_delta_df['DELTA_E(MeV)'] = delta_e
 
                     to_concat.append(fx_delta_df)
-                    unique_index += len(log_xy_sorted)
+                    unique_index += len(fx_delta_df)
 
                     if layer_id == (num_layers - 1):  # progress visualization
                         print('  ', '[' + (layer_id + 1) * '#' + (num_layers - layer_id - 1) * '-' + ']', end=f' Beam {beam_id} complete\n')
@@ -1264,6 +1266,9 @@ class MachineLog():
         # concatenate layer deltaframes
         print('  ..Concatenating..')
         self.patient_delta_df = pd.concat(to_concat, sort=True)
+        self.patient_delta_df.dropna(axis=1, how='all', inplace=True)
+        if len(self.patient_delta_df) != len(self.patient_record_df):
+            print(f'  /!\ Deltaframe length does not match dataframe length ({len(self.patient_delta_df)} vs. {len(self.patient_record_df)})')
 
         # write deltaframe
         os.chdir(self.df_destination)
@@ -1905,29 +1910,33 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBIL001_671075/Logfiles'
+    # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBILTest01_1588055/Logfiles'
+    # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBIL001_671075/Logfiles'
+    root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/'
     # root_dir = r'/home/luke/Logfile_Extraction/Logfiles/671075/Logfiles'
     # root = Tk()
     # root_dir = filedialog.askdirectory()
     # root.destroy()
+    
+    patients = {}
+    print('Searching for log-file directories with existent plans..')
+    for root, dir, files in os.walk(root_dir):
+        if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
+            patient_id = root.split('\\')[-1]
+            print(f'''  Found {patient_id}''')
+            patients[patient_id] = os.path.join(root, 'Logfiles')
+    for patiend_id, log_dir in patients.items():
+        print(f'\n...STARTING PATIENT {patiend_id}...\n')
+        log = MachineLog(log_dir)
+        # log.prepare_dataframe()
+        log.prepare_deltaframe()
 
-    # patients = {}
-    # print('Searching for log-file directories with existent plans..')
-    # for root, dir, files in os.walk(root_dir):
-    #     if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
-    #         patient_id = root.split('\\')[-1]
-    #         print(f'''  Found {patient_id}''')
-    #         patients[patient_id] = os.path.join(root, 'Logfiles')
-    # for patiend_id, log_dir in patients.items():
-    #     print(f'\n...STARTING PATIENT {patiend_id}...\n')
-    #     log = MachineLog(log_dir)
-    #     log.prepare_dataframe()
-    #     log.prepare_deltaframe()
-    log = MachineLog(root_dir)
+    # log = MachineLog(root_dir)
+    # log.prepare_deltaframe()
     # log.beam_histos()
     # log.delta_dependencies()
     # log.fractional_evolution(all=False)
-    log.delta_correlation_matrix(gtr_only=False)
+    # log.delta_correlation_matrix(gtr_only=False)
 
 else:
     print('>> Module', __name__, 'loaded')
