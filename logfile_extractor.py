@@ -554,7 +554,7 @@ class MachineLog():
         # allowed beam parameters
         qa_energies = [100., 140., 165., 185., 205., 226.7]
         qa_angles = np.linspace(0., 360., 8, endpoint=False)
-        qa_spots = 18
+        qa_spots = [18, 22]
 
         # helper functions for dataframe column operations
         def map_x_pos(y_pos_arr):
@@ -679,6 +679,7 @@ class MachineLog():
                                     record_file_df.drop(record_file_df[record_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)
                                 except:
                                     pass
+
                                 record_file_df = record_file_df[record_file_df.groupby('SUBMAP_NUMBER')['SUBMAP_NUMBER'].transform('count') > 1]  # drop all rows without plan-relevant data
                             
                             except:  # unlikely event of unusable information in log-file (possible if split into parts)
@@ -703,7 +704,7 @@ class MachineLog():
                             layer_energy = np.exp(np.polyval(iba_gtr2_poly, np.log(range_at_iso)))  # [MeV]
                             record_file_df['LAYER_ENERGY(MeV)'] = layer_energy
 
-                            if not np.round(layer_energy, 1) in qa_energies or not len(record_file_df['X_POSITION(mm)'].drop_duplicates()) == qa_spots:
+                            if not np.round(layer_energy, 1) in qa_energies:
                                 continue
                             
                             # coordinate system transform iba <-> raystation (x <-> y)
@@ -735,7 +736,10 @@ class MachineLog():
                         continue
                     
                     del to_do_layers
-                    
+
+                    if layer_df.shape[0] not in qa_spots:
+                        continue
+
                     finalized_layers.append(layer_df)
 
                 if no_exceptions:
@@ -770,7 +774,7 @@ class MachineLog():
             except PermissionError:
                 input('  Permission denied, close target file and press ENTER.. ')
 
-        self.qa_record_df = self.qa_record_df.astype(dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+        self.qa_record_df = pd.read_csv('QA_2017-2022_records_data.csv', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
         print('Complete')
     
 
@@ -1912,26 +1916,28 @@ class MachineLog():
 if __name__ == '__main__':
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBILTest01_1588055/Logfiles'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBIL001_671075/Logfiles'
-    root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/'
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\Logfiles_Spotshape_QA\converted'
+    # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/'
     # root_dir = r'/home/luke/Logfile_Extraction/Logfiles/671075/Logfiles'
     # root = Tk()
     # root_dir = filedialog.askdirectory()
     # root.destroy()
     
-    patients = {}
-    print('Searching for log-file directories with existent plans..')
-    for root, dir, files in os.walk(root_dir):
-        if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
-            patient_id = root.split('\\')[-1]
-            print(f'''  Found {patient_id}''')
-            patients[patient_id] = os.path.join(root, 'Logfiles')
-    for patiend_id, log_dir in patients.items():
-        print(f'\n...STARTING PATIENT {patiend_id}...\n')
-        log = MachineLog(log_dir)
-        # log.prepare_dataframe()
-        log.prepare_deltaframe()
+    # patients = {}
+    # print('Searching for log-file directories with existent plans..')
+    # for root, dir, files in os.walk(root_dir):
+    #     if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
+    #         patient_id = root.split('\\')[-1]
+    #         print(f'''  Found {patient_id}''')
+    #         patients[patient_id] = os.path.join(root, 'Logfiles')
+    # for patiend_id, log_dir in patients.items():
+    #     print(f'\n...STARTING PATIENT {patiend_id}...\n')
+    #     log = MachineLog(log_dir)
+    #     # log.prepare_dataframe()
+    #     log.prepare_deltaframe()
 
-    # log = MachineLog(root_dir)
+    log = MachineLog(root_dir)
+    log.prepare_qa_dataframe()
     # log.prepare_deltaframe()
     # log.beam_histos()
     # log.delta_dependencies()
