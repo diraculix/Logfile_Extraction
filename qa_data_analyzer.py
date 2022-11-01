@@ -8,30 +8,33 @@ try:
     df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'  # TO BE CHANGED
     os.chdir(df_destination)
 except:
-    df_destination = r'C:\Users\lukas\Documents\OncoRay HPRT\Logfile_Extraction_mobile\dataframes'
+    df_destination = r'/home/luke/Logfile_Extraction/dataframes'
     os.chdir(df_destination)
 
 
 def plot_qa_beams(qa_df):
     beam_ids = qa_df['BEAM_ID'].drop_duplicates().to_list()
-    n_beams = len(beam_ids)
     sns.set()
-    sns.scatterplot(data=qa_df, x='X_POSITION(mm)', y='Y_POSITION(mm)', hue='LAYER_ENERGY(MeV)', size='X_WIDTH(mm)')
+    g = sns.scatterplot(data=qa_df, x='X_POSITION(mm)', y='Y_POSITION(mm)', hue='LAYER_ENERGY(MeV)', size='X_WIDTH(mm)')
     plt.show()
-    plt.clf()
 
-    sns.histplot(data=qa_df[['DELTA_X(mm)','DELTA_Y(mm)']], kde=True)
+    g = sns.histplot(data=qa_df[['DELTA_X(mm)','DELTA_Y(mm)']], kde=True)
     plt.xlabel('$\Delta$ (log - plan) [mm]')
-    plt.legend(title='Median position')
+    leg = g.axes.get_legend()
+    new_title = 'Median diff to plan'
+    leg.set_title(new_title)
+    new_labels = [f'''$\\tilde x =$ {qa_df['DELTA_X(mm)'].median().round(3)}''', f'''$\\tilde y =$ {qa_df['DELTA_Y(mm)'].median().round(3)}''']
+    for t, l in zip(leg.texts, new_labels):
+        t.set_text(l)   
     plt.show()
 
     only_one_angle = qa_dataframe.loc[qa_dataframe['GANTRY_ANGLE'] == 0.0]
-    only_one_energy = qa_dataframe.loc[qa_dataframe['LAYER_ENERGY(MeV)'] == 100.]
-    sns.pairplot(data=only_one_angle[['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)', 'LAYER_ENERGY(MeV)', 'GANTRY_ANGLE']], vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)'], hue='LAYER_ENERGY(MeV)', corner=True)
+    only_one_energy = qa_dataframe.loc[qa_dataframe['LAYER_ENERGY(MeV)'] == 226.7].astype({'GANTRY_ANGLE':float})
+    g = sns.pairplot(data=only_one_angle[['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)', 'LAYER_ENERGY(MeV)', 'GANTRY_ANGLE']], vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)'], hue='LAYER_ENERGY(MeV)', corner=True)
     plt.suptitle('Gantry Angle 0.0°', fontweight='bold')
     plt.show()
-    sns.pairplot(data=only_one_energy[['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)', 'LAYER_ENERGY(MeV)', 'GANTRY_ANGLE']], vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)'], hue='GANTRY_ANGLE', corner=True)
-    plt.suptitle('Beam Energy 100.0 MeV', fontweight='bold')
+    g = sns.pairplot(data=only_one_energy[['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)', 'LAYER_ENERGY(MeV)', 'GANTRY_ANGLE']], vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)'], hue='GANTRY_ANGLE', corner=True)
+    plt.suptitle('Beam Energy 226.7 MeV', fontweight='bold')
     plt.show()
 
     return None
@@ -91,8 +94,7 @@ def post_process(qa_df):
     qa_xy = [0., 30., 60., 120.]
     qa_xy += [- xy for xy in qa_xy]
     
-    # print(qa_positions)
-    qa_df['XY'] = [np.array(_).round(-1) for _ in zip(qa_df['X_POSITION(mm)'], qa_df['Y_POSITION(mm)'])]
+    # qa_df['XY'] = [np.array(_).round(-1) for _ in zip(qa_df['X_POSITION(mm)'], qa_df['Y_POSITION(mm)'])]
     qa_df = qa_df[np.round(qa_df['X_POSITION(mm)'], -1).isin(qa_xy) & np.round(qa_df['Y_POSITION(mm)'], -1).isin(qa_xy)]
     qa_df['DELTA_X(mm)'] = qa_df['X_POSITION(mm)'] - np.round(qa_df['X_POSITION(mm)'], -1)
     qa_df['DELTA_Y(mm)'] = qa_df['Y_POSITION(mm)'] - np.round(qa_df['Y_POSITION(mm)'], -1)
