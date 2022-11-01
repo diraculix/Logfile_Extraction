@@ -94,11 +94,13 @@ def post_process(qa_df):
     qa_xy = [0., 30., 60., 120.]
     qa_xy += [- xy for xy in qa_xy]
     
+    print(qa_df.shape)
     # qa_df['XY'] = [np.array(_).round(-1) for _ in zip(qa_df['X_POSITION(mm)'], qa_df['Y_POSITION(mm)'])]
     qa_df = qa_df[np.round(qa_df['X_POSITION(mm)'], -1).isin(qa_xy) & np.round(qa_df['Y_POSITION(mm)'], -1).isin(qa_xy)]
     qa_df['DELTA_X(mm)'] = qa_df['X_POSITION(mm)'] - np.round(qa_df['X_POSITION(mm)'], -1)
     qa_df['DELTA_Y(mm)'] = qa_df['Y_POSITION(mm)'] - np.round(qa_df['Y_POSITION(mm)'], -1)
     qa_df['LAYER_ENERGY(MeV)'] = np.round(qa_df['LAYER_ENERGY(MeV)'], 1)
+    print(qa_df.shape)
 
     return qa_df
     

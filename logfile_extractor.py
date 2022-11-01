@@ -554,7 +554,8 @@ class MachineLog():
         # allowed beam parameters
         qa_energies = [100., 140., 165., 185., 205., 226.7]
         qa_angles = np.linspace(0., 360., 8, endpoint=False)
-        qa_spots = [18, 22]
+        qa_xy = [0., 30., 60., 120.]
+        qa_xy += [- xy for xy in qa_xy]
 
         # helper functions for dataframe column operations
         def map_x_pos(y_pos_arr):
@@ -737,9 +738,15 @@ class MachineLog():
                     
                     del to_do_layers
 
-                    if layer_df.shape[0] not in qa_spots:
-                        continue
-
+                    # filter only relevant qa data
+                    layer_df['X_ROUND'] = np.round(layer_df['X_POSITION(mm)'], -1)
+                    layer_df['Y_ROUND'] = np.round(layer_df['Y_POSITION(mm)'], -1)  
+                    layer_df['E_ROUND'] = np.round(layer_df['LAYER_ENERGY(MeV)'], 1)                
+                    layer_df = layer_df.loc[layer_df['X_ROUND'].isin(qa_xy) & layer_df['Y_ROUND'].isin(qa_xy)]
+                    layer_df['DELTA_X(mm)'] = layer_df['X_POSITION(mm)'] - layer_df['X_ROUND']
+                    layer_df['DELTA_Y(mm)'] = layer_df['Y_POSITION(mm)'] - layer_df['Y_ROUND']
+                    layer_df['LAYER_ENERGY(MeV)'] = layer_df['E_ROUND']
+                    layer_df.drop(columns=['X_ROUND', 'Y_ROUND', 'E_ROUND'])
                     finalized_layers.append(layer_df)
 
                 if no_exceptions:
@@ -1916,9 +1923,10 @@ class MachineLog():
 if __name__ == '__main__':
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBILTest01_1588055/Logfiles'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBIL001_671075/Logfiles'
-    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\Logfiles_Spotshape_QA\converted'
+    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\Logfiles_Spotshape_QA\converted'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/'
     # root_dir = r'/home/luke/Logfile_Extraction/Logfiles/671075/Logfiles'
+    root_dir = r'/home/luke/Logfile_Extraction/converted'
     # root = Tk()
     # root_dir = filedialog.askdirectory()
     # root.destroy()
