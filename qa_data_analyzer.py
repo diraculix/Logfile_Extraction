@@ -5,37 +5,46 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 
 try:
-    df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'  # TO BE CHANGED
+    df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
+    output_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\output'
     os.chdir(df_destination)
 except:
     df_destination = r'/home/luke/Logfile_Extraction/dataframes'
+    output_dir = r'/home/luke/Logfile_Extraction/output'
     os.chdir(df_destination)
 
 
 def plot_qa_beams(qa_df):
     beam_ids = qa_df['BEAM_ID'].drop_duplicates().to_list()
-    sns.set()
-    g = sns.scatterplot(data=qa_df, x='X_POSITION(mm)', y='Y_POSITION(mm)', hue='LAYER_ENERGY(MeV)', size='X_WIDTH(mm)')
-    plt.show()
+    sns.set_theme()
+    fig = plt.figure(figsize=(8, 8))
+    g = sns.scatterplot(data=qa_df, x='X_POSITION(mm)', y='Y_POSITION(mm)', hue='LAYER_ENERGY(MeV)', size='X_WIDTH(mm)', edgecolor='None', alpha=0.5)
+    sns.move_legend(g, "upper left", bbox_to_anchor=(1, 1))
+    plt.savefig(f'{output_dir}/QA_scatter_all.png', dpi=300)
+    plt.clf()
 
     g = sns.histplot(data=qa_df[['DELTA_X(mm)','DELTA_Y(mm)']], kde=True)
     plt.xlabel('$\Delta$ (log - plan) [mm]')
     leg = g.axes.get_legend()
-    new_title = 'Median diff to plan'
+    new_title = 'Mean difference to plan'
     leg.set_title(new_title)
-    new_labels = [f'''$\\tilde x =$ {qa_df['DELTA_X(mm)'].median().round(3)}''', f'''$\\tilde y =$ {qa_df['DELTA_Y(mm)'].median().round(3)}''']
+    new_labels = [f'''$\Delta x =$ {np.round(qa_df['DELTA_X(mm)'].median(), 3)} $\pm$ {np.round(qa_df['DELTA_X(mm)'].std(), 3)}''', f'''$\Delta y =$ {np.round(qa_df['DELTA_Y(mm)'].median(), 3)} $\pm$ {np.round(qa_df['DELTA_Y(mm)'].std(), 3)}''']
     for t, l in zip(leg.texts, new_labels):
         t.set_text(l)   
-    plt.show()
+    plt.savefig(f'{output_dir}/QA_hist_all.png', dpi=300)
+    plt.clf()
 
     only_one_angle = qa_dataframe.loc[qa_dataframe['GANTRY_ANGLE'] == 0.0]
     only_one_energy = qa_dataframe.loc[qa_dataframe['LAYER_ENERGY(MeV)'] == 226.7].astype({'GANTRY_ANGLE':float})
     g = sns.pairplot(data=only_one_angle[['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)', 'LAYER_ENERGY(MeV)', 'GANTRY_ANGLE']], vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)'], hue='LAYER_ENERGY(MeV)', corner=True)
     plt.suptitle('Gantry Angle 0.0°', fontweight='bold')
-    plt.show()
+    plt.savefig(f'{output_dir}/QA_pairplot_one_angle.png', dpi=600)
+    plt.clf()
+    
     g = sns.pairplot(data=only_one_energy[['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)', 'LAYER_ENERGY(MeV)', 'GANTRY_ANGLE']], vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)'], hue='GANTRY_ANGLE', corner=True)
     plt.suptitle('Beam Energy 226.7 MeV', fontweight='bold')
-    plt.show()
+    plt.savefig(f'{output_dir}/QA_pairplot_one_energy.png', dpi=600)
+    plt.clf()
 
     return None
 
@@ -110,6 +119,6 @@ if __name__ == '__main__':
     qa_dataframe = pd.read_csv('QA_2017-2022_records_data.csv', dtype={'BEAM_ID':str, 'FRACTION_ID':int})
     # print(qa_dataframe['X_WIDTH(mm)'].min(), qa_dataframe['X_WIDTH(mm)'].max())
     # print(qa_dataframe['Y_WIDTH(mm)'].min(), qa_dataframe['Y_WIDTH(mm)'].max())
-    qa_dataframe = post_process(qa_dataframe)
+    # qa_dataframe = post_process(qa_dataframe)
     plot_qa_beams(qa_dataframe)
     # get_delta(qa_dataframe)
