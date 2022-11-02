@@ -122,12 +122,12 @@ class MachineLog():
         
         # helper functions for dataframe column operations
         def map_x_pos(y_pos_arr):
-            # return np.multiply(np.subtract(y_pos_arr, ic_offset_x), np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
-            return np.multiply(np.subtract(y_pos_arr, ic_offset_y), np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
+            return np.multiply(np.subtract(y_pos_arr, ic_offset_x), np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))  # this way
+            # return np.multiply(np.subtract(y_pos_arr, ic_offset_y), np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
         
         def map_y_pos(x_pos_arr):
-            # return np.multiply(np.subtract(x_pos_arr, ic_offset_y), np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
-            return np.multiply(np.subtract(x_pos_arr, ic_offset_x), np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
+            return np.multiply(np.subtract(x_pos_arr, ic_offset_y), np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))  # this way
+            # return np.multiply(np.subtract(x_pos_arr, ic_offset_x), np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
         
         def map_x_wid(y_wid_arr):
             return np.multiply(y_wid_arr, np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
@@ -1951,11 +1951,12 @@ if __name__ == '__main__':
     #     log.prepare_deltaframe()
 
     log = MachineLog(root_dir)
-    log.prepare_dataframe()
+    # log.prepare_dataframe()
+    # log.plot_beam_layers()
     # log.prepare_qa_dataframe()
-    # log.prepare_deltaframe()
+    log.prepare_deltaframe()
     # log.beam_histos()
-    # log.delta_dependencies()
+    log.delta_dependencies()
     # log.fractional_evolution(all=False)
     # log.delta_correlation_matrix(gtr_only=False)
 
