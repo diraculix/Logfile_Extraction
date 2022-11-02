@@ -122,10 +122,12 @@ class MachineLog():
         
         # helper functions for dataframe column operations
         def map_x_pos(y_pos_arr):
-            return np.multiply(np.subtract(y_pos_arr, ic_offset_x), np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
+            # return np.multiply(np.subtract(y_pos_arr, ic_offset_x), np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
+            return np.multiply(np.subtract(y_pos_arr, ic_offset_y), np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
         
         def map_y_pos(x_pos_arr):
-            return np.multiply(np.subtract(x_pos_arr, ic_offset_y), np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
+            # return np.multiply(np.subtract(x_pos_arr, ic_offset_y), np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
+            return np.multiply(np.subtract(x_pos_arr, ic_offset_x), np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
         
         def map_x_wid(y_wid_arr):
             return np.multiply(y_wid_arr, np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
@@ -187,20 +189,20 @@ class MachineLog():
                     beam_file.close()
 
                 # attempt to find plan dicom and draw snout position
-                for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
-                    for fname in filenames:
-                        if fname.__contains__('RP') and fname.endswith('.dcm') and not fname.__contains__('log'):
-                            ds = pydicom.read_file(os.path.join(path, fname))
-                            for i, beam in enumerate(ds.IonBeamSequence):
-                                if float(beam.IonControlPointSequence[0].GantryAngle) == gantry_angle and len(beam.IonControlPointSequence) == num_layers * 2:
-                                    beam_ds = beam
+                # for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
+                #     for fname in filenames:
+                #         if fname.__contains__('RP') and fname.endswith('.dcm') and not fname.__contains__('log'):
+                #             ds = pydicom.read_file(os.path.join(path, fname))
+                #             for i, beam in enumerate(ds.IonBeamSequence):
+                #                 if float(beam.IonControlPointSequence[0].GantryAngle) == gantry_angle and len(beam.IonControlPointSequence) == num_layers * 2:
+                #                     beam_ds = beam
 
-                has_snout_ext = False
-                try:
-                    snout_ext = beam_ds.IonControlPointSequence[0].SnoutPosition  # extension in mm
-                    has_snout_ext = True
-                except:
-                    snout_ext = np.nan
+                # has_snout_ext = False
+                # try:
+                #     snout_ext = beam_ds.IonControlPointSequence[0].SnoutPosition  # extension in mm
+                #     has_snout_ext = True
+                # except:
+                #     snout_ext = np.nan
 
                 with open(beam_config, 'r') as beam_config:  # draw machine parameters from *beam_config.csv
                     iso_disp_x, iso_disp_y = [], []
@@ -214,24 +216,24 @@ class MachineLog():
                         elif line.__contains__('Nozzle WET polynomial'):
                             nozzle_wet_poly = [float(x) for x in line.split(';')[-1].split(',')]
                         
-                        if has_snout_ext:
-                            if line.__contains__('Isodisplacement_snout_extentions'):
-                                columns = [float(s) for s in line.split(';')[-1].split(',')]
-                            elif line.__contains__('Isodisplacement_gantry_angles'):
-                                rows = [float(g) for g in line.split(';')[-1].split(',')]
-                            elif line.__contains__('Isodisplacement_X_'):
-                                iso_disp_x.append([float(dx) for dx in line.split(';')[-1].split(',')])
-                            elif line.__contains__('Isodisplacement_Y_'):
-                                iso_disp_y.append([float(dy) for dy in line.split(';')[-1].split(',')])
+                    #     if has_snout_ext:
+                    #         if line.__contains__('Isodisplacement_snout_extentions'):
+                    #             columns = [float(s) for s in line.split(';')[-1].split(',')]
+                    #         elif line.__contains__('Isodisplacement_gantry_angles'):
+                    #             rows = [float(g) for g in line.split(';')[-1].split(',')]
+                    #         elif line.__contains__('Isodisplacement_X_'):
+                    #             iso_disp_x.append([float(dx) for dx in line.split(';')[-1].split(',')])
+                    #         elif line.__contains__('Isodisplacement_Y_'):
+                    #             iso_disp_y.append([float(dy) for dy in line.split(';')[-1].split(',')])
 
-                    if has_snout_ext:
-                        iso_disp_x_cubic = interpolate.interp2d(columns, rows, iso_disp_x)
-                        iso_disp_y_cubic = interpolate.interp2d(columns, rows, iso_disp_y)
-                        delta_x_iso = iso_disp_x_cubic(snout_ext, gantry_angle)
-                        delta_y_iso = iso_disp_y_cubic(snout_ext, gantry_angle)
+                    # if has_snout_ext:
+                    #     iso_disp_x_cubic = interpolate.interp2d(columns, rows, iso_disp_x)
+                    #     iso_disp_y_cubic = interpolate.interp2d(columns, rows, iso_disp_y)
+                    #     delta_x_iso = iso_disp_x_cubic(snout_ext, gantry_angle)
+                    #     delta_y_iso = iso_disp_y_cubic(snout_ext, gantry_angle)
                     
-                    else:
-                        delta_x_iso, delta_y_iso = np.nan, np.nan
+                    # else:
+                    #     delta_x_iso, delta_y_iso = np.nan, np.nan
                 
                     ref_pressure, ref_temperature = 1013., 293.  # [hPa, K] standard reference, can also be read from same file
                     correction_factor = (1 / chamber_correction) * (ref_pressure * temperature) / (ref_temperature * pressure)  # why inverse chamber correction?
@@ -339,8 +341,8 @@ class MachineLog():
                             record_file_df['X_WID'], record_file_df['Y_WID'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
                             record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS']].apply(map_x_pos)
                             record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS']].apply(map_y_pos)
-                            record_file_df['X_POSITION_CORR(mm)'] = record_file_df['X_POSITION(mm)'] + delta_y_iso
-                            record_file_df['Y_POSITION_CORR(mm)'] = record_file_df['Y_POSITION(mm)'] + delta_x_iso
+                            # record_file_df['X_POSITION_CORR(mm)'] = record_file_df['X_POSITION(mm)'] + delta_y_iso
+                            # record_file_df['Y_POSITION_CORR(mm)'] = record_file_df['Y_POSITION(mm)'] + delta_x_iso
                             record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID']].apply(map_x_wid)
                             record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID']].apply(map_y_wid)
                             record_file_df.drop(columns=['X_POS', 'Y_POS', 'X_WID', 'Y_WID'], inplace=True)
@@ -750,7 +752,7 @@ class MachineLog():
                     layer_df['DELTA_X(mm)'] = layer_df['X_POSITION(mm)'] - layer_df['X_ROUND']
                     layer_df['DELTA_Y(mm)'] = layer_df['Y_POSITION(mm)'] - layer_df['Y_ROUND']
                     layer_df['LAYER_ENERGY(MeV)'] = layer_df['E_ROUND']
-                    layer_df.drop(columns=['X_ROUND', 'Y_ROUND', 'E_ROUND'])
+                    layer_df.drop(columns=['X_ROUND', 'Y_ROUND', 'E_ROUND', 'TOTAL_LAYERS'], inplace=True)
                     finalized_layers.append(layer_df)
 
                 if no_exceptions:
@@ -1925,9 +1927,9 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBILTest01_1588055/Logfiles'
+    root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBILTest01_1588055/Logfiles'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBIL001_671075/Logfiles'
-    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\Logfiles_Spotshape_QA\converted'
+    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\Logfiles_Spotshape_QA\converted'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/'
     # root_dir = r'/home/luke/Logfile_Extraction/Logfiles/671075/Logfiles'
     # root_dir = r'/home/luke/Logfile_Extraction/converted'
@@ -1949,7 +1951,8 @@ if __name__ == '__main__':
     #     log.prepare_deltaframe()
 
     log = MachineLog(root_dir)
-    log.prepare_qa_dataframe()
+    log.prepare_dataframe()
+    # log.prepare_qa_dataframe()
     # log.prepare_deltaframe()
     # log.beam_histos()
     # log.delta_dependencies()
