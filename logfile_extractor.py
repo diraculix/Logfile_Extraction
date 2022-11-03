@@ -24,6 +24,22 @@ except:
     pass
 
 
+# helper functions for dataframe column operations
+def map_spot_pos(pos_arr, ic_offset, sad, ictoiso):
+
+    return np.multiply(np.subtract(pos_arr, ic_offset), np.divide(sad, np.subtract(sad, ictoiso)))  # this way
+
+
+def map_spot_width(width_arr, sad, ictoiso):
+
+    return np.multiply(width_arr, np.divide(sad, np.subtract(sad, ictoiso)))
+
+
+def map_spot_mu(charge_arr, correction_factor, charge_per_mu):
+
+    return np.divide(np.multiply(charge_arr, correction_factor), charge_per_mu)
+
+
 class MachineLog():
     def __init__(self, root_dir):
         valid_dir = False
@@ -109,8 +125,7 @@ class MachineLog():
             self.patient_record_df, self.patient_tuning_df = pd.DataFrame(), pd.DataFrame()
             # self.prepare_dataframe()
         
-        os.chdir(self.logfile_dir)
-    
+        os.chdir(self.logfile_dir)    
 
     def prepare_dataframe(self):
         if not self.patient_record_df.empty and not self.patient_tuning_df.empty:  # function call obsolete if record/tuning dataframes exist, re-init possible
@@ -119,24 +134,6 @@ class MachineLog():
             re_init = input('Re-initialize patient dataframe [y/n]? ')
             if re_init != 'y':
                 return None
-        
-        # helper functions for dataframe column operations
-        def map_x_pos(y_pos_arr):
-            return np.multiply(np.subtract(y_pos_arr, ic_offset_x), np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))  # this way
-            # return np.multiply(np.subtract(y_pos_arr, ic_offset_y), np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
-        
-        def map_y_pos(x_pos_arr):
-            return np.multiply(np.subtract(x_pos_arr, ic_offset_y), np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))  # this way
-            # return np.multiply(np.subtract(x_pos_arr, ic_offset_x), np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
-        
-        def map_x_wid(y_wid_arr):
-            return np.multiply(y_wid_arr, np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
-        
-        def map_y_wid(x_wid_arr):
-            return np.multiply(x_wid_arr, np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
-        
-        def map_mu(charge_arr):
-            return np.divide(np.multiply(charge_arr, correction_factor), charge_per_mu)
 
         print(f'Initializing dataframe for patient-ID {self.patient_id}..')
         self.patient_record_df, self.patient_tuning_df = pd.DataFrame(), pd.DataFrame()  # overwrite stored df's
@@ -339,17 +336,17 @@ class MachineLog():
                             # coordinate system transform iba <-> raystation (x <-> y)
                             record_file_df['X_POS'], record_file_df['Y_POS'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
                             record_file_df['X_WID'], record_file_df['Y_WID'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
-                            record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS']].apply(map_x_pos)
-                            record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS']].apply(map_y_pos)
+                            record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
+                            record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
                             # record_file_df['X_POSITION_CORR(mm)'] = record_file_df['X_POSITION(mm)'] + delta_y_iso
                             # record_file_df['Y_POSITION_CORR(mm)'] = record_file_df['Y_POSITION(mm)'] + delta_x_iso
-                            record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID']].apply(map_x_wid)
-                            record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID']].apply(map_y_wid)
+                            record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID']].apply(map_spot_width, args=(sad_x, ictoiso_x))
+                            record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID']].apply(map_spot_width, args=(sad_y, ictoiso_y))
                             record_file_df.drop(columns=['X_POS', 'Y_POS', 'X_WID', 'Y_WID'], inplace=True)
                             record_file_df['SQDIST_TO_ISO(mm)'] = np.square(record_file_df['X_POSITION(mm)']) + np.square(record_file_df['Y_POSITION(mm)'])
                         
                             # charge to MU conversion using correction factor
-                            record_file_df['MU'] = record_file_df[['ACC_CHARGE(C)']].apply(map_mu)
+                            record_file_df['MU'] = record_file_df[['ACC_CHARGE(C)']].apply(map_spot_mu, args=(correction_factor, charge_per_mu))
                             record_file_df.drop(columns=['ACC_CHARGE(C)'], inplace=True)
                             record_file_df.reindex()  # make sure modified layer df is consistent with indexing
                             to_do_layers.append(record_file_df)
@@ -448,17 +445,17 @@ class MachineLog():
 
                             tuning_file_df['X_POS'], tuning_file_df['Y_POS'] = tuning_file_df['X_POSITION(mm)'], tuning_file_df['Y_POSITION(mm)']
                             tuning_file_df['X_WID'], tuning_file_df['Y_WID'] = tuning_file_df['X_WIDTH(mm)'], tuning_file_df['Y_WIDTH(mm)']
-                            tuning_file_df['X_POSITION(mm)'] = tuning_file_df[['Y_POS']].apply(map_x_pos)
-                            tuning_file_df['Y_POSITION(mm)'] = tuning_file_df[['X_POS']].apply(map_y_pos)
-                            tuning_file_df['X_WIDTH(mm)'] = tuning_file_df[['Y_WID']].apply(map_x_wid)
-                            tuning_file_df['Y_WIDTH(mm)'] = tuning_file_df[['X_WID']].apply(map_y_wid)
+                            tuning_file_df['X_POSITION(mm)'] = tuning_file_df[['Y_POS']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
+                            tuning_file_df['Y_POSITION(mm)'] = tuning_file_df[['X_POS']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
+                            tuning_file_df['X_WIDTH(mm)'] = tuning_file_df[['Y_WID']].apply(map_spot_width, args=(sad_x, ictoiso_x))
+                            tuning_file_df['Y_WIDTH(mm)'] = tuning_file_df[['X_WID']].apply(map_spot_width, args=(sad_y, ictoiso_y))
                             tuning_file_df.drop(columns=['X_POS', 'Y_POS', 'X_WID', 'Y_WID'], inplace=True)
                             # new_x_series = (pd.Series(tuning_file_df['Y_POSITION(mm)']) - ic_offset_x) * sad_x / (sad_x - ictoiso_x)  # coordinate system transform iba <-> raystation (x <-> y)
                             # new_y_series = (pd.Series(tuning_file_df['X_POSITION(mm)']) - ic_offset_y) * sad_y / (sad_y - ictoiso_y)
                             # tuning_file_df['X_POSITION(mm)'], tuning_file_df['Y_POSITION(mm)'] = new_x_series, new_y_series
                             # del new_x_series, new_y_series            
                             
-                            tuning_file_df['MU'] = tuning_file_df[['ACC_CHARGE(C)']].apply(map_mu)
+                            tuning_file_df['MU'] = tuning_file_df[['ACC_CHARGE(C)']].apply(map_spot_mu, args=(correction_factor, charge_per_mu))
                             tuning_file_df.drop(columns=['ACC_CHARGE(C)'], inplace=True)
 
                             tuning_file_df.reindex()
@@ -559,19 +556,6 @@ class MachineLog():
         qa_spots = [18, 22]
         qa_xy = [0., 30., 60., 120.]
         qa_xy += [- xy for xy in qa_xy]
-
-        # helper functions for dataframe column operations
-        def map_x_pos(y_pos_arr):
-            return np.multiply(np.subtract(y_pos_arr, ic_offset_x), np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
-        
-        def map_y_pos(x_pos_arr):
-            return np.multiply(np.subtract(x_pos_arr, ic_offset_y), np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
-        
-        def map_x_wid(y_wid_arr):
-            return np.multiply(y_wid_arr, np.divide(sad_x, np.subtract(sad_x, ictoiso_x)))
-        
-        def map_y_wid(x_wid_arr):
-            return np.multiply(x_wid_arr, np.divide(sad_y, np.subtract(sad_y, ictoiso_y)))
 
         print(f'\nMining semi-annual spot-QA data..')
         self.qa_record_df = pd.DataFrame()  # overwrite stored df's
@@ -715,10 +699,10 @@ class MachineLog():
                             record_file_df.drop_duplicates(subset=['X_POSITION(mm)', 'Y_POSITION(mm)'], inplace=True)
                             record_file_df['X_POS'], record_file_df['Y_POS'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
                             record_file_df['X_WID'], record_file_df['Y_WID'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
-                            record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS']].apply(map_x_pos)
-                            record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS']].apply(map_y_pos)
-                            record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID']].apply(map_x_wid)
-                            record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID']].apply(map_y_wid)
+                            record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
+                            record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
+                            record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID']].apply(map_spot_width, args=(sad_x, ictoiso_x))
+                            record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID']].apply(map_spot_width, args=(sad_y, ictoiso_y))
                             record_file_df.drop(columns=['X_POS', 'Y_POS', 'X_WID', 'Y_WID'], inplace=True)
                             record_file_df['DIST_TO_ISO(mm)'] = np.sqrt(np.square(record_file_df['X_POSITION(mm)']) + np.square(record_file_df['Y_POSITION(mm)']))
                             record_file_df.reindex()  # make sure modified layer df is consistent with indexing
@@ -1927,11 +1911,11 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBILTest01_1588055/Logfiles'
+    # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBILTest01_1588055/Logfiles'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBIL001_671075/Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\Logfiles_Spotshape_QA\converted'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/'
-    # root_dir = r'/home/luke/Logfile_Extraction/Logfiles/671075/Logfiles'
+    root_dir = r'/home/luke/Logfile_Extraction/1588055/Logfiles'
     # root_dir = r'/home/luke/Logfile_Extraction/converted'
     # root = Tk()
     # root_dir = filedialog.askdirectory()
@@ -1952,9 +1936,9 @@ if __name__ == '__main__':
 
     log = MachineLog(root_dir)
     # log.prepare_dataframe()
-    # log.plot_beam_layers()
+    log.plot_beam_layers()
     # log.prepare_qa_dataframe()
-    log.prepare_deltaframe()
+    # log.prepare_deltaframe()
     # log.beam_histos()
     log.delta_dependencies()
     # log.fractional_evolution(all=False)
