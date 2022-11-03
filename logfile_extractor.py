@@ -127,6 +127,7 @@ class MachineLog():
         
         os.chdir(self.logfile_dir)    
 
+
     def prepare_dataframe(self):
         if not self.patient_record_df.empty and not self.patient_tuning_df.empty:  # function call obsolete if record/tuning dataframes exist, re-init possible
             print('Already read existing patient record/tuning dataframes:')
@@ -240,6 +241,9 @@ class MachineLog():
                 # Source: IBA Particle Therapy 08/22 (Jozef Bokor), universal nozzle WET polynomial coefficients
                 iba_gtr2_poly = [0.001684756748152, -0.00490089228886989, 0.561372013469097, 3.46404838890297]
                 
+                # fig, ax1 = plt.subplots()
+                # ax2 = ax1.twinx()
+
                 layer_exceptions, finalized_layers, finalized_tunings = [], [self.patient_record_df], [self.patient_tuning_df]
                 for layer_id in range(num_layers):
                     to_do_layers, to_do_tunings = [], []
@@ -248,6 +252,16 @@ class MachineLog():
                         if int(record_file.split('_')[2].split('_')[0]) == layer_id:
                             try:
                                 record_file_df = pd.read_csv(record_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
+                                # test = record_file_df[record_file_df.groupby('SUBMAP_NUMBER')['SUBMAP_NUMBER'].transform('count') > 1]
+                                # test = test.loc[test['X_WIDTH(mm)'] != -10000.]
+                                # time = pd.to_datetime(test['TIME'])
+
+                                # if layer_id == 0:
+                                #     ax1.plot(time, test['X_WIDTH(mm)'], color='black', label='Spot width')
+                                #     ax1.plot(time, test['X_WIDTH_IC1(mm)'], color='red', label='Spot width (IC1)')
+                                # else:
+                                #     ax1.plot(time, test['X_WIDTH(mm)'], color='black')
+                                #     ax1.plot(time, test['X_WIDTH_IC1(mm)'], color='red')
 
                             except:
                                 print('  /!\ Read CSV error:', record_file)
@@ -332,6 +346,11 @@ class MachineLog():
                             range_at_iso = range_at_degrader - nozzle_wet
                             layer_energy = np.exp(np.polyval(iba_gtr2_poly, np.log(range_at_iso)))  # [MeV]
                             record_file_df['LAYER_ENERGY(MeV)'] = layer_energy
+
+                            # if layer_id == 0:
+                            #     ax2.plot(time, [1 / layer_energy for _ in range(len(time))], color='orange', label='Inverse energy', zorder=-1)
+                            # else:
+                            #     ax2.plot(time, [1 / layer_energy for _ in range(len(time))], color='orange', zorder=-1)
                             
                             # coordinate system transform iba <-> raystation (x <-> y)
                             record_file_df['X_POS'], record_file_df['Y_POS'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
@@ -517,6 +536,12 @@ class MachineLog():
                         print('  ', '[' + (layer_id + 1) * char + (num_layers - layer_id - 1) * '-' + ']', end=f' Layer {str(layer_id + 1).zfill(2)}/{str(num_layers).zfill(2)}\r')
                     
                     no_exceptions = True
+
+                # ax1.legend(loc=0)
+                # ax2.legend(loc=1)
+                # ax1.set_ylabel('Spot width (mm)')
+                # ax2.set_ylabel('Inverse energy (1/MeV)', color='b')
+                # plt.show()
 
                 # remove temporary files
                 for file in os.listdir('.'):
@@ -1912,10 +1937,10 @@ class MachineLog():
 
 if __name__ == '__main__':
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBILTest01_1588055/Logfiles'
-    # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBIL001_671075/Logfiles'
+    root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBIL001_671075/Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\Logfiles_Spotshape_QA\converted'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/'
-    root_dir = r'/home/luke/Logfile_Extraction/1588055/Logfiles'
+    # root_dir = r'/home/luke/Logfile_Extraction/1588055/Logfiles'
     # root_dir = r'/home/luke/Logfile_Extraction/converted'
     # root = Tk()
     # root_dir = filedialog.askdirectory()
@@ -1935,12 +1960,12 @@ if __name__ == '__main__':
     #     log.prepare_deltaframe()
 
     log = MachineLog(root_dir)
-    # log.prepare_dataframe()
-    log.plot_beam_layers()
+    log.prepare_dataframe()
+    # log.plot_beam_layers()
     # log.prepare_qa_dataframe()
     # log.prepare_deltaframe()
     # log.beam_histos()
-    log.delta_dependencies()
+    # log.delta_dependencies()
     # log.fractional_evolution(all=False)
     # log.delta_correlation_matrix(gtr_only=False)
 
