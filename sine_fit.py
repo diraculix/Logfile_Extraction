@@ -6,8 +6,8 @@ from matplotlib import pyplot as plt
 
 
 def generate_data(gantry):
-    x, data, count = [], pd.DataFrame(columns=['gantry', 'dx']), 50
-    def randsin(x):  return np.sin(2*np.pi / 360 * x) + rd.gauss(0., 2.)
+    x, data, count = [], pd.DataFrame(columns=['gantry', 'dx']), 20
+    def randsin(x):  return np.sin(2*np.pi / 360 * x) + rd.gauss(0., 1.)
     for i in range(count):
         x.extend(gantry)
 

@@ -1,8 +1,12 @@
+print('Read dataframe .. ', end='\r')
+
 import os
 import pandas as pd
 import numpy as np
 from matplotlib import pyplot as plt
+from scipy import optimize
 import seaborn as sns
+
 
 try:
     df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
@@ -12,6 +16,8 @@ except:
     df_destination = r'/home/luke/Logfile_Extraction/dataframes'
     output_dir = r'/home/luke/Logfile_Extraction/output'
     os.chdir(df_destination)
+
+print('Read dataframe .. DONE')
 
 
 def plot_qa_beams(qa_df):
@@ -110,6 +116,62 @@ def post_process(qa_df, energy, gantry):
     processed = qa_df.loc[(qa_df['LAYER_ENERGY(MeV)'] == energy) & (qa_df['GANTRY_ANGLE'] == gantry)]
         
     return processed
+
+
+def fit_sin(t, y):
+    tt, yy = np.array(t), np.array(y)
+    
+    def sinfunc(t, A, w, p, c):  return A * np.sin(w*t + p) + c
+
+    guess_freq = 1 / 360
+    guess_amp = np.std(yy) * 2.**0.5
+    guess_offset = np.mean(yy)
+    guess = np.array([guess_amp, 2.*np.pi*guess_freq, 0., guess_offset])
+
+    popt, pcov = optimize.curve_fit(sinfunc, tt, yy, p0=guess)
+    A, w, p, c = popt
+    f = w/(2.*np.pi)
+    fitfunc = lambda t: A * np.sin(w*t + p) + c
+
+    print('Amplitude:', A, '\nPeriod:', 1/f, '\nPhase:', p, '\nOffset:', c)
+    return fitfunc
+
+
+def correct_gtr(qa_df):
+    angles = sorted(qa_df.GANTRY_ANGLE.drop_duplicates().to_list())
+    x_diff_scatter = zip(qa_df.GANTRY_ANGLE, qa_df['DELTA_X(mm)'])
+    y_diff_scatter = zip(qa_df.GANTRY_ANGLE, qa_df['DELTA_Y(mm)'])
+    x_median_diffs = [qa_df.loc[qa_df.GANTRY_ANGLE == angle]['DELTA_X(mm)'].median() for angle in angles]
+    y_median_diffs = [qa_df.loc[qa_df.GANTRY_ANGLE == angle]['DELTA_Y(mm)'].median() for angle in angles]
+
+    angles.append(360.)
+    zero_x, zero_y = x_median_diffs[0], y_median_diffs[0]
+    x_median_diffs.append(zero_x), y_median_diffs.append(zero_y)
+
+    fig, axs = plt.subplots(1, 2, figsize=(10, 4), sharex=True, sharey=True)
+    x_axis = np.linspace(0, 360, 1000)
+    sine_fit_x = fit_sin(angles, x_median_diffs)
+    sine_fit_y = fit_sin(angles, y_median_diffs)
+
+    axs[0].scatter(*zip(*x_diff_scatter), alpha=0.2, label='$\Delta x$ to plan', zorder=-1)
+    axs[0].scatter(angles, x_median_diffs, edgecolors='black', c='white', label='Median shift', zorder=1)
+    axs[0].plot(x_axis, sine_fit_x(x_axis), c='black', label='Sine fit', zorder=0)
+
+    axs[1].scatter(*zip(*y_diff_scatter), alpha=0.2, label='$\Delta y$ to plan', zorder=-1)
+    axs[1].scatter(angles, y_median_diffs, edgecolors='black', c='white', label='Median shift', zorder=1)
+    axs[1].plot(x_axis, sine_fit_y(x_axis), c='black', label='Sine fit', zorder=0)
+    
+    axs[0].set_ylabel('Positional error [mm]')
+    axs[0].set_xlabel('Gantry angle [°]')
+    axs[0].legend()
+    axs[1].set_xlabel('Gantry angle [°]')
+    axs[1].legend()
+
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/QA_gantry_sine_fit.png', dpi=300)
+    plt.show()
+
+    return qa_df
       
 
 if __name__ == '__main__':
@@ -117,5 +179,6 @@ if __name__ == '__main__':
     # print(qa_dataframe['X_WIDTH(mm)'].min(), qa_dataframe['X_WIDTH(mm)'].max())
     # print(qa_dataframe['Y_WIDTH(mm)'].min(), qa_dataframe['Y_WIDTH(mm)'].max())
     # qa_dataframe = post_process(qa_dataframe, energy=100., gantry=0.)
-    plot_qa_beams(qa_dataframe)
+    # plot_qa_beams(qa_dataframe)
+    qa_dataframe = correct_gtr(qa_dataframe)
     # get_delta(qa_dataframe)
