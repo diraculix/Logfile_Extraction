@@ -19,7 +19,6 @@ except:
 
 print('Read dataframe .. DONE')
 
-
 def plot_qa_beams(qa_df):
     beam_ids = qa_df['BEAM_ID'].drop_duplicates().to_list()
     qa_df = qa_df.astype({'FRACTION_ID':str})
@@ -143,6 +142,12 @@ def correct_gtr(qa_df):
     y_diff_scatter = zip(qa_df.GANTRY_ANGLE, qa_df['DELTA_Y(mm)'])
     x_median_diffs = [qa_df.loc[qa_df.GANTRY_ANGLE == angle]['DELTA_X(mm)'].median() for angle in angles]
     y_median_diffs = [qa_df.loc[qa_df.GANTRY_ANGLE == angle]['DELTA_Y(mm)'].median() for angle in angles]
+
+    output_df = pd.DataFrame(columns=['GANTRY_ANGLE', 'DELTA_X[mm]', 'DELTA_Y[mm]'])
+    output_df['GANTRY_ANGLE'] = angles
+    output_df['DELTA_X[mm]'] = x_median_diffs
+    output_df['DELTA_Y[mm]'] = y_median_diffs
+    output_df.to_csv(f'{output_dir}/QA_angular_dependence.csv')
 
     angles.append(360.)
     zero_x, zero_y = x_median_diffs[0], y_median_diffs[0]
