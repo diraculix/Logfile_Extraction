@@ -1,16 +1,14 @@
 '''Encoding: UTF-8'''
 __author__ = 'Lukas C. Wolter, OncoRay ZIK, Dresden, Germany'
 __project__ = 'Logfile-based dose calculation & beam statistics'
-__version__ = 5.0
 
-import os
-import sys
+import os, sys
 import pydicom
 import pandas as pd
 import numpy as np
 import seaborn as sns
+from scipy import optimize, interpolate
 from tkinter import Tk, filedialog
-from scipy import interpolate
 from matplotlib import pyplot as plt
 
 
@@ -26,18 +24,33 @@ except:
 
 # helper functions for dataframe column operations
 def map_spot_pos(pos_arr, ic_offset, sad, ictoiso):
-
     return np.multiply(np.subtract(pos_arr, ic_offset), np.divide(sad, np.subtract(sad, ictoiso)))  # this way
 
 
 def map_spot_width(width_arr, sad, ictoiso):
-
     return np.multiply(width_arr, np.divide(sad, np.subtract(sad, ictoiso)))
 
 
 def map_spot_mu(charge_arr, correction_factor, charge_per_mu):
-
     return np.divide(np.multiply(charge_arr, correction_factor), charge_per_mu)
+
+def fit_sin(t, y):
+    tt, yy = np.array(t), np.array(y)
+    
+    def sinfunc(t, A, w, p, c):  return A * np.sin(w*t + p) + c
+
+    guess_freq = 1 / 360
+    guess_amp = np.std(yy) * 2.**0.5
+    guess_offset = np.mean(yy)
+    guess = np.array([guess_amp, 2.*np.pi*guess_freq, 0., guess_offset])
+
+    popt, pcov = optimize.curve_fit(sinfunc, tt, yy, p0=guess)
+    A, w, p, c = popt
+    f = w/(2.*np.pi)
+    fitfunc = lambda t: A * np.sin(w*t + p) + c
+
+    # print('\nAmplitude:', A, '\nPeriod:', 1/f, '\nPhase:', p, '\nOffset:', c)
+    return fitfunc
 
 
 class MachineLog():
@@ -123,7 +136,7 @@ class MachineLog():
         if not record_df_exists or not tuning_df_exists:
             print(f'''\nUnable to locate patient record/tuning dataframes for patient-ID {self.patient_id}. Please run prepare_dataframe()..''')
             self.patient_record_df, self.patient_tuning_df = pd.DataFrame(), pd.DataFrame()
-            # self.prepare_dataframe()
+            self.prepare_dataframe()
         
         os.chdir(self.logfile_dir)    
 
@@ -135,6 +148,21 @@ class MachineLog():
             re_init = input('Re-initialize patient dataframe [y/n]? ')
             if re_init != 'y':
                 return None
+        
+        try:  # set up function for gtr-angle-dependent spot position correction (based on measured QA data from 2017-2022)
+            qa_df = pd.read_csv(f'{output_dir}/QA_angular_dependence.csv')
+            qa_angles = qa_df.GANTRY_ANGLE.to_list()
+            qa_angles.append(360.)
+            qa_median_x = qa_df['DELTA_X[mm]'].to_list()
+            qa_median_x.append(qa_median_x[0])
+            qa_median_y = qa_df['DELTA_Y[mm]'].to_list()
+            qa_median_y.append(qa_median_y[0])
+            correct_x = fit_sin(qa_angles, qa_median_x)  # <-- function
+            correct_y = fit_sin(qa_angles, qa_median_y)
+        except FileNotFoundError:
+            '  /!\ Spot position correction data not found, no funciton will be applied..'
+            def temp(x): return x
+            correct_x = temp, correct_y = temp  # <-- function
 
         print(f'Initializing dataframe for patient-ID {self.patient_id}..')
         self.patient_record_df, self.patient_tuning_df = pd.DataFrame(), pd.DataFrame()  # overwrite stored df's
@@ -225,8 +253,8 @@ class MachineLog():
                     #             iso_disp_y.append([float(dy) for dy in line.split(';')[-1].split(',')])
 
                     # if has_snout_ext:
-                    #     iso_disp_x_cubic = interpolate.interp2d(columns, rows, iso_disp_x)
-                    #     iso_disp_y_cubic = interpolate.interp2d(columns, rows, iso_disp_y)
+                    #     iso_disp_x_cubic = interpolate.interp2d(columns, rows, iso_disp_x, kind='cubic')
+                    #     iso_disp_y_cubic = interpolate.interp2d(columns, rows, iso_disp_y, kind='cubic')
                     #     delta_x_iso = iso_disp_x_cubic(snout_ext, gantry_angle)
                     #     delta_y_iso = iso_disp_y_cubic(snout_ext, gantry_angle)
                     
@@ -357,8 +385,8 @@ class MachineLog():
                             record_file_df['X_WID'], record_file_df['Y_WID'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
                             record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
                             record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
-                            # record_file_df['X_POSITION_CORR(mm)'] = record_file_df['X_POSITION(mm)'] + delta_y_iso
-                            # record_file_df['Y_POSITION_CORR(mm)'] = record_file_df['Y_POSITION(mm)'] + delta_x_iso
+                            record_file_df['X_POSITION_CORR(mm)'] = record_file_df['X_POSITION(mm)'] + record_file_df['X_POSITION(mm)'].apply(correct_x)
+                            record_file_df['Y_POSITION_CORR(mm)'] = record_file_df['Y_POSITION(mm)'] + record_file_df['Y_POSITION(mm)'].apply(correct_y)
                             record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID']].apply(map_spot_width, args=(sad_x, ictoiso_x))
                             record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID']].apply(map_spot_width, args=(sad_y, ictoiso_y))
                             record_file_df.drop(columns=['X_POS', 'Y_POS', 'X_WID', 'Y_WID'], inplace=True)
