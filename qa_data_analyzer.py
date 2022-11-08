@@ -140,30 +140,30 @@ def correct_gtr(qa_df):
     angles = sorted(qa_df.GANTRY_ANGLE.drop_duplicates().to_list())
     x_diff_scatter = zip(qa_df.GANTRY_ANGLE, qa_df['DELTA_X(mm)'])
     y_diff_scatter = zip(qa_df.GANTRY_ANGLE, qa_df['DELTA_Y(mm)'])
-    x_median_diffs = [qa_df.loc[qa_df.GANTRY_ANGLE == angle]['DELTA_X(mm)'].median() for angle in angles]
-    y_median_diffs = [qa_df.loc[qa_df.GANTRY_ANGLE == angle]['DELTA_Y(mm)'].median() for angle in angles]
+    x_mean_diffs = [qa_df.loc[qa_df.GANTRY_ANGLE == angle]['DELTA_X(mm)'].mean() for angle in angles]
+    y_mean_diffs = [qa_df.loc[qa_df.GANTRY_ANGLE == angle]['DELTA_Y(mm)'].mean() for angle in angles]
 
     output_df = pd.DataFrame(columns=['GANTRY_ANGLE', 'DELTA_X[mm]', 'DELTA_Y[mm]'])
     output_df['GANTRY_ANGLE'] = angles
-    output_df['DELTA_X[mm]'] = x_median_diffs
-    output_df['DELTA_Y[mm]'] = y_median_diffs
+    output_df['DELTA_X[mm]'] = x_mean_diffs
+    output_df['DELTA_Y[mm]'] = y_mean_diffs
     output_df.to_csv(f'{output_dir}/QA_angular_dependence.csv')
 
     angles.append(360.)
-    zero_x, zero_y = x_median_diffs[0], y_median_diffs[0]
-    x_median_diffs.append(zero_x), y_median_diffs.append(zero_y)
+    zero_x, zero_y = x_mean_diffs[0], y_mean_diffs[0]
+    x_mean_diffs.append(zero_x), y_mean_diffs.append(zero_y)
 
     fig, axs = plt.subplots(1, 2, figsize=(10, 4), sharex=True, sharey=True)
     x_axis = np.linspace(0, 360, 1000)
-    sine_fit_x = fit_sin(angles, x_median_diffs)
-    sine_fit_y = fit_sin(angles, y_median_diffs)
+    sine_fit_x = fit_sin(angles, x_mean_diffs)
+    sine_fit_y = fit_sin(angles, y_mean_diffs)
 
     axs[0].scatter(*zip(*x_diff_scatter), alpha=0.2, label='$\Delta x$ to plan', zorder=-1)
-    axs[0].scatter(angles, x_median_diffs, edgecolors='black', c='white', label='Median shift', zorder=1)
+    axs[0].scatter(angles, x_mean_diffs, edgecolors='black', c='white', label='mean shift', zorder=1)
     axs[0].plot(x_axis, sine_fit_x(x_axis), c='black', label='Sine fit', zorder=0)
 
     axs[1].scatter(*zip(*y_diff_scatter), alpha=0.2, label='$\Delta y$ to plan', zorder=-1)
-    axs[1].scatter(angles, y_median_diffs, edgecolors='black', c='white', label='Median shift', zorder=1)
+    axs[1].scatter(angles, y_mean_diffs, edgecolors='black', c='white', label='mean shift', zorder=1)
     axs[1].plot(x_axis, sine_fit_y(x_axis), c='black', label='Sine fit', zorder=0)
     
     axs[0].set_ylabel('Positional error [mm]')
