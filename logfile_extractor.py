@@ -1,6 +1,23 @@
-'''Encoding: UTF-8'''
-__author__ = 'Lukas C. Wolter, OncoRay ZIK, Dresden, Germany'
-__project__ = 'Logfile-based dose calculation & beam statistics'
+'''
+Author:     Lukas C. Wolter, OncoRay ZIK, Dresden, Germany
+Project:    Logfile-based patient-specific quality assurance
+Encoding:   UTF-8
+Synopsis:   The main component of this script is the 'MachineLog'-class,
+            which operates on a specific file hierarchy representing the
+            patient in terms of treatment fractions, each containing the 
+            respective log-files. MachineLog() takes one argument for
+            __init()__, which is the parent directory of all fractions
+            and has to be submitted to the class by the user. The class
+            methods prepare_*() are mandatory prerequisites for further 
+            usage, as they compress single logs into .csv files to enable
+            dataframe operations.
+User input: -   root_dir: parent directory containing log-file sorted by
+                treatment fraction, submitted to MachineLog-class call
+            -   output_dir: directory for output graphs, to be set below
+                imports  
+            -   self.df_destination: directory for dataframe (compressed
+                log-file) storage, to be set in MachineLog.__init__()
+'''
 
 import os, sys
 import pydicom
@@ -11,20 +28,24 @@ from scipy import optimize, interpolate
 from tkinter import Tk, filedialog
 from matplotlib import pyplot as plt
 
-
-output_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\output'  # TO BE CHANGED
+output_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\output'  # set output dir, fallback alternative below (if code is used between multiple systems)
 if not os.path.isdir(os.path.join(output_dir, '..')):
     output_dir = r'/home/luke/Logfile_Extraction/output'
 
-try:
-    os.mkdir(output_dir)
-except:
-    pass
+try: os.mkdir(output_dir)
+except: pass
 
 
-# helper functions for dataframe column operations
+'''
+Helper functions outside of class, use cases are:
+    -   map_spot functions: project PBS spot position recorded from log
+        to isocenter (TPS) coordinates, convert charge released in
+        nozzle ionizaiton chamber (IC) to monitor units (MU)
+    -   fit_sin: returns a correction function for systematic shift in
+        spot position (experimental)
+'''
 def map_spot_pos(pos_arr, ic_offset, sad, ictoiso):
-    return np.multiply(np.subtract(pos_arr, ic_offset), np.divide(sad, np.subtract(sad, ictoiso)))  # this way
+    return np.multiply(np.subtract(pos_arr, ic_offset), np.divide(sad, np.subtract(sad, ictoiso)))
 
 
 def map_spot_width(width_arr, sad, ictoiso):
@@ -39,27 +60,25 @@ def fit_sin(t, y):
     
     def sinfunc(t, A, w, p, c):  return A * np.sin(w*t + p) + c
 
-    guess_freq = 1 / 360
+    guess_freq = 1 / 360  # full gantry rotation 360 degrees
     guess_amp = np.std(yy) * 2.**0.5
     guess_offset = np.mean(yy)
     guess = np.array([guess_amp, 2.*np.pi*guess_freq, 0., guess_offset])
 
     popt, pcov = optimize.curve_fit(sinfunc, tt, yy, p0=guess)
     A, w, p, c = popt
-    f = w/(2.*np.pi)
     fitfunc = lambda t: A * np.sin(w*t + p) + c
 
-    # print('\nAmplitude:', A, '\nPeriod:', 1/f, '\nPhase:', p, '\nOffset:', c)
     return fitfunc
 
 
 class MachineLog():
     def __init__(self, root_dir):
         valid_dir = False
+
+        # open root directory containing logs, very sensitive to dir structure (only directories must be contained)
         while not valid_dir:
-            root = Tk()
-            self.logfile_dir = root_dir  # open logfile root directory, which contains one dir per fraction
-            root.destroy()
+            self.logfile_dir = root_dir
             if self.logfile_dir == '' or str(self.logfile_dir) == '()':
                 sys.exit('/x\ No directory selected, exiting..')
             for index, element in enumerate(os.listdir(self.logfile_dir)):
@@ -69,13 +88,15 @@ class MachineLog():
                 elif index == len(os.listdir(self.logfile_dir)) - 1:
                     valid_dir = True
         
-        self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'  # TO BE CHANGED
+        # set dataframe storage directory, fallback alternative below
+        self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
         if not os.path.isdir(os.path.join(self.df_destination, '..')):            
             self.df_destination = r'/home/luke/Logfile_Extraction/dataframes'
         
         try: os.mkdir(self.df_destination)
         except: pass
-      
+
+        # initialize fraction and beam list by directory names
         self.fraction_list = sorted(os.listdir(self.logfile_dir))
         self.num_fractions = len(self.fraction_list)
         self.beam_list = []
@@ -86,13 +107,14 @@ class MachineLog():
                     beams_in_frac.append(dir)
             self.beam_list.append(beams_in_frac)
 
-        self.missing_beams = []
+        # scan fraction dirs for missing beams (empy dirs) or invalid beams (e.g. from qa measures)
+        self.missing_beams = []  # list of tuples (fraction_id, beam_id)
         for fraction_no, fraction_id in enumerate(self.fraction_list):
             for beam_no, beam_id in enumerate(self.beam_list[fraction_no]):
                 current_beam_path = os.path.join(self.logfile_dir, fraction_id, beam_id)
                 os.chdir(current_beam_path)
                 valid_beam = True
-                while len(os.listdir('.')) <= 3:  # log-file dirs may be nested irregularly
+                while len(os.listdir('.')) <= 3:  # log-file dirs are nested
                     try:
                         os.chdir(os.listdir('.')[0])
                     except:
@@ -101,8 +123,7 @@ class MachineLog():
                         valid_beam = False
                         break
                 
-                if not valid_beam:
-                    continue
+                if not valid_beam: continue
 
                 for file in os.listdir('.'):
                     if file.__contains__('beam.'):
@@ -119,6 +140,7 @@ class MachineLog():
                     print(f'  /!\ Invalid beam {beam_id} in fraction {fraction_id}')
                     continue
         
+        # check for already existent dataframe for patient, read in and prevent re-creation in this case
         record_df_exists, tuning_df_exists = False, False
         for dirpath, dirnames, filenames in os.walk(os.path.join(self.df_destination, '..')):  # sweep over root directory, read existing dataframes
             for fname in filenames:
@@ -133,6 +155,7 @@ class MachineLog():
                     self.patient_tuning_df = pd.read_csv(os.path.join(dirpath, fname), index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
                     tuning_df_exists = True
         
+        # if no patient dataframes are found, create them by default
         if not record_df_exists or not tuning_df_exists:
             print(f'''\nUnable to locate patient record/tuning dataframes for patient-ID {self.patient_id}. Please run prepare_dataframe()..''')
             self.patient_record_df, self.patient_tuning_df = pd.DataFrame(), pd.DataFrame()
@@ -140,7 +163,11 @@ class MachineLog():
         
         os.chdir(self.logfile_dir)    
 
-
+    '''
+    Main data extraction function:
+    Operation:  Loop over fraction directories, collect relevant beam data in pandas dataframe, write to .csv
+    Returns:    None
+    '''
     def prepare_dataframe(self):
         if not self.patient_record_df.empty and not self.patient_tuning_df.empty:  # function call obsolete if record/tuning dataframes exist, re-init possible
             print('Already read existing patient record/tuning dataframes:')
