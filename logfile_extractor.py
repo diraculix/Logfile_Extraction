@@ -580,7 +580,6 @@ class MachineLog():
         print('Complete')
 
     
-
     def prepare_qa_dataframe(self):        
         # allowed beam parameters
         qa_energies = [100., 140., 165., 185., 205., 226.7]
