@@ -163,12 +163,15 @@ class MachineLog():
         
         os.chdir(self.logfile_dir)    
 
+
     '''
     Main data extraction function:
+    Requires:   Initialized valid log-file directory
+    Arguments:  None
     Operation:  Loop over fraction directories, collect relevant beam data in pandas dataframe, write to .csv
     Returns:    None
     '''
-    def prepare_dataframe(self):
+    def prepare_dataframe(self) -> None:
         if not self.patient_record_df.empty and not self.patient_tuning_df.empty:  # function call obsolete if record/tuning dataframes exist, re-init possible
             print('Already read existing patient record/tuning dataframes:')
             print(f'  {self.record_df_name}\n  {self.tuning_df_name}\n')
@@ -226,7 +229,7 @@ class MachineLog():
                         tuning_specifs.append(file)
                     
                 if len(map_records) == 0 or len(tunings) == 0:
-                        raise LookupError(f'  /x\ No logfiles found for beam-ID {beam_id} in fraction {fraction_id}')
+                        print(f'  /x\ No logfiles found for beam-ID {beam_id} in fraction {fraction_id}')
                         continue
 
                 num_layers = max([int(fname.split('_')[2].split('_')[0]) + 1 for fname in map_records])
@@ -579,8 +582,15 @@ class MachineLog():
         self.patient_tuning_df = self.patient_tuning_df.astype(dtype={'BEAM_ID':str, 'FRACTION_ID':str})
         print('Complete')
 
-    
-    def prepare_qa_dataframe(self):        
+
+    '''
+    Single-purpose function to filter for and extract log-file data from QA measurements, adopted from prepare_dataframe():
+    Requires:   Initialized valid log-file directory
+    Arguments:  None
+    Operation:  Restricted log-file data mining using only allowed beam parameters from QA protocol, collect and write to .csv
+    Returns:    None
+    '''
+    def prepare_qa_dataframe(self) -> None:        
         # allowed beam parameters
         qa_energies = [100., 140., 165., 185., 205., 226.7]
         qa_angles = np.linspace(0., 360., 8, endpoint=False)
@@ -597,7 +607,7 @@ class MachineLog():
                 os.chdir(current_beam_path)
                 while len(os.listdir('.')) <= 3:
                     try:
-                        os.chdir(sorted(os.listdir('.'))[0])  # navigate through nested logfile dir structure (possibly risky)
+                        os.chdir(sorted(os.listdir('.'))[0])  # navigate through nested logfile dir structure
                     except OSError:
                         print(f'  /!\ No directory to enter in {os.getcwd()}, staying here..')
                         break
@@ -806,8 +816,19 @@ class MachineLog():
         print('Complete')
     
 
+    '''
+    Shared searching function invoked by other methods, perform os.walk() to identify treatment plan matching given log-file data
+    Required:   Written .csv dataframe in self.dataframe_destination
+    Arguments:  fraction_id - Desired treatment fraction present in dataframe
+                beam_id -             treatment beam 
+                verbose - If True, print output and warning, else supress them
+    Returns:    plan_dcm - DICOM filename
+                beam_ds - beam dataset, read-in with pydicom
+    '''
     def dicom_finder(self, fraction_id, beam_id, verbose=True):
-        fraction_df = self.patient_record_df.loc[self.patient_record_df['FRACTION_ID'] == fraction_id]
+        fraction_df = self.patient_record_df.loc[self.patient_record_df['FRACTION_ID'] == fraction_id]  # slice patient dataframe
+        
+        # beam naming by planners might be inconsistent (BeamName vs. BeamDescription tag in dicom)
         for bid in fraction_df['BEAM_ID'].drop_duplicates():
             if str(bid).__contains__(str(beam_id)) or str(beam_id).__contains__(str(bid)):
                 beam_df = fraction_df.loc[fraction_df['BEAM_ID'] == bid]
@@ -817,22 +838,21 @@ class MachineLog():
         n_layers = beam_df['TOTAL_LAYERS'].iloc[0]
         found = False
 
-        # auto-location of plan DICOM
-        if verbose:
-            print('  Trying to auto-locate patient plan dicoms..')
-        
+        if verbose: print('  Trying to auto-locate patient plan dicoms..')
+
+        # auto-location of plan DICOM        
         for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
             for fname in filenames:
                 if fname.__contains__('RP') and fname.endswith('.dcm') and not fname.__contains__('log'):
                     ds = pydicom.read_file(os.path.join(path, fname))
-                    for i, beam in enumerate(ds.IonBeamSequence):
+                    for beam in ds.IonBeamSequence:
                         plan_energies = np.array(pd.Series(sorted([layer.NominalBeamEnergy for layer in beam.IonControlPointSequence])).drop_duplicates().to_list())
                         log_energies = np.array(sorted(beam_df['LAYER_ENERGY(MeV)'].drop_duplicates().to_list()))
                         
                         # check gantry angle, total layers, beam energies. Do not check names, they are non-standardized
-                        if float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:
+                        if float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:  # layer sequence in DICOM has double entries
                             max_energy_diff = np.max(np.abs(plan_energies - log_energies))
-                            if max_energy_diff < 0.1:
+                            if max_energy_diff < 0.1:  # tolerance on energy diff to plan, logs normally below dE = 0.1MeV
                                 plan_dcm = os.path.join(path, fname)
                                 beam_ds = beam
                                 if verbose:
@@ -842,9 +862,8 @@ class MachineLog():
                                         print('    /!\ Further DICOM match -', fname)
                                 found = True
                             
-        while not found:  # open dicom file manually if failed
-            if not verbose:
-                return None
+        while not found:  # fallback: open dicom file manually if failed
+            if not verbose: return None
 
             root = Tk()
             print(f'    /!\ Auto-location failed for beam-ID {beam_id} in fraction-ID {fraction_id}, select plan DICOM..')
