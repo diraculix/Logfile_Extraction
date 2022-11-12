@@ -590,7 +590,7 @@ class MachineLog():
     Operation:  Restricted log-file data mining using only allowed beam parameters from QA protocol, collect and write to .csv
     Returns:    None
     '''
-    def prepare_qa_dataframe(self) -> None:        
+    def prepare_qa_dataframe(self) -> None:
         # allowed beam parameters
         qa_energies = [100., 140., 165., 185., 205., 226.7]
         qa_angles = np.linspace(0., 360., 8, endpoint=False)
@@ -818,10 +818,9 @@ class MachineLog():
 
     '''
     Shared searching function invoked by other methods, perform os.walk() to identify treatment plan matching given log-file data
-    Required:   Written .csv dataframe in self.dataframe_destination
-    Arguments:  fraction_id - Desired treatment fraction present in dataframe
-                beam_id -             treatment beam 
-                verbose - If True, print output and warning, else supress them
+    Requires:   Written .csv dataframe in self.dataframe_destination
+    Arguments:  fraction_id/beam_id - Desired treatment fraction/beam present in dataframe
+                verbose - if True, print output and warning, else supress them
     Returns:    plan_dcm - DICOM filename
                 beam_ds - beam dataset, read-in with pydicom
     '''
@@ -882,24 +881,36 @@ class MachineLog():
         return plan_dcm, beam_ds
 
 
+    '''
+    Shared function invoked by other methods, changes log-file spot sequence order to match plan
+    Requires:   Written .csv dataframe in self.dataframe_destination, existent plan DICOM within parent dir
+    Arguments:  fraction_id/beam_id - Desired treatment fraction/beam present in dataframe
+                mode:
+                    record - sort irradiated spots from record file to plan, neglect tuning spots
+                    tuning - identify spots omitted by ScanAlgo in case of high-weighted tuning (important for dose recon)
+    Returns:    sorting_dict - nested dictionary working on spot_id in respective layer_id, i.e. sorting_dict[layer_id][spot_id] = plan_id
+    '''
     def spot_sorter(self, fraction_id, beam_id, mode='record'):
-        to_be_sorted = self.patient_record_df.loc[(self.patient_record_df['FRACTION_ID'] == fraction_id) & (self.patient_record_df['BEAM_ID'] == beam_id)]
-        n_layers = to_be_sorted['TOTAL_LAYERS'].iloc[0]
-        sorting_dict = {lid:{} for lid in range(n_layers)}
+        to_be_sorted = self.patient_record_df.loc[(self.patient_record_df['FRACTION_ID'] == fraction_id) & (self.patient_record_df['BEAM_ID'] == beam_id)]  # slice dataframe
+        n_layers = to_be_sorted['TOTAL_LAYERS'].iloc[0]  # get total beam layers
+        sorting_dict = {lid:{} for lid in range(n_layers)}  # initialize empty dictionary
 
+        # use dicom_finder() to draw plan and beam
         plan_dcm, beam_ds = self.dicom_finder(fraction_id, beam_id)
         
-        # sorting 
+        # start sorting procedure
         print(f'  Sorting spots for beam-ID {beam_id}..')
         for layer_id in to_be_sorted['LAYER_ID'].drop_duplicates():
             try:
                 plan_layer = beam_ds.IonControlPointSequence[layer_id * 2]
-            except IndexError:
+            except IndexError:  # warning, possibly wrong plan
                 print(f'''  /!\ Layer-ID mismatch, skipping layer #{layer_id + 1} in beam {beam_id}, fraction {fraction_id}''')
                 continue
 
             plan_spotmap = plan_layer.ScanSpotPositionMap
             plan_x, plan_y = [], []
+
+            # alternating read-out of x- and y-values in plan spotmap
             for i, spot in enumerate(plan_spotmap):
                 if i % 2 == 0:
                     plan_x.append(spot)
@@ -909,15 +920,16 @@ class MachineLog():
 
             log_layer = to_be_sorted.loc[(to_be_sorted['LAYER_ID'] == layer_id) & (to_be_sorted['FRACTION_ID'] == fraction_id)]
             log_xy = [tup for tup in zip(log_layer['X_POSITION(mm)'].to_list(), log_layer['Y_POSITION(mm)'].to_list())]
-            log_xy_sorted = [(np.nan, np.nan) for _ in range(max(len(log_xy), len(plan_xy)))]
+            log_xy_sorted = [(np.nan, np.nan) for _ in range(max(len(log_xy), len(plan_xy)))]  # initialize empty sorted list with sufficient length
 
-            # match (x,y)-positions to plan, transform MU list equally
+            # match (x,y)-positions to plan
             for i, log_spot in enumerate(log_xy):
                 shifts = [np.array(plan_spot) - np.array(log_spot) for plan_spot in plan_xy]
                 dists = [abs((shift).dot(shift)) for shift in shifts]
                 index = dists.index(min(dists))
                 log_xy_sorted[index] = log_xy[i]
 
+            # drop NaN's from sorted list, these represent planned spots omitted by ScanAlgo in case of high-weighted tuning spot
             dropped = 0
             for drop, xy in enumerate(log_xy_sorted):
                 if xy == (np.nan, np.nan):
@@ -925,6 +937,7 @@ class MachineLog():
                     drop_id = drop
                     dropped += 1
             
+            # only the tuning spot might be dropped, if more than one, show corrupted spot map to user and return None
             if dropped > 1:
                 print(f'Dropped {dropped} spots | fx-ID {fraction_id} | beam-ID {beam_id} | layer-ID {layer_id}')
                 plt.plot(*zip(*plan_xy), marker='x', ls='-', color='tab:blue', label='plan')
@@ -936,6 +949,7 @@ class MachineLog():
                 print(f'  /!\ Log beam {beam_id} spots do not match plan beam {beam_ds.BeamName}')
                 return None
 
+            # if sorting_dict is used for tuning spot sorting, use omitted spot information
             if mode == 'tuning':
                 try:
                     sorting_dict[layer_id] = drop_id
