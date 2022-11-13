@@ -17,18 +17,18 @@ except:
     output_dir = r'/home/luke/Logfile_Extraction/output'
     os.chdir(df_destination)
 
-print('Read dataframe .. DONE')
 
 def plot_qa_beams(qa_df):
     beam_ids = qa_df['BEAM_ID'].drop_duplicates().to_list()
     qa_df = qa_df.astype({'FRACTION_ID':str})
 
     sns.set_theme()
-    fig = plt.figure(figsize=(8, 8))
+    fig = plt.figure(figsize=(11, 8))
     g = sns.scatterplot(data=qa_df, x='X_POSITION(mm)', y='Y_POSITION(mm)', hue='LAYER_ENERGY(MeV)', size='X_WIDTH(mm)', edgecolor='black')
     sns.move_legend(g, "upper left", bbox_to_anchor=(1, 1))
+    plt.tight_layout()
     plt.savefig(f'''{output_dir}/QA_scatter_{qa_df['LAYER_ENERGY(MeV)'].mean()}_{qa_df['GANTRY_ANGLE'].mean()}.png''', dpi=300)
-    # plt.show()
+    plt.show()
     plt.clf()
 
     g = sns.histplot(data=qa_df[['DELTA_X(mm)','DELTA_Y(mm)']], kde=True)
@@ -39,13 +39,16 @@ def plot_qa_beams(qa_df):
     new_labels = [f'''$\Delta x =$ {np.round(qa_df['DELTA_X(mm)'].median(), 3)} $\pm$ {np.round(qa_df['DELTA_X(mm)'].std(), 3)}''', f'''$\Delta y =$ {np.round(qa_df['DELTA_Y(mm)'].median(), 3)} $\pm$ {np.round(qa_df['DELTA_Y(mm)'].std(), 3)}''']
     for t, l in zip(leg.texts, new_labels):
         t.set_text(l)   
+    plt.tight_layout()
     plt.savefig(f'''{output_dir}/QA_hist_{qa_df['LAYER_ENERGY(MeV)'].mean()}_{qa_df['GANTRY_ANGLE'].mean()}.png''', dpi=300)
-    # plt.show()
+    plt.show()
     plt.clf()
 
     sns.color_palette('hls', n_colors=8)
     g = sns.pairplot(data=qa_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'GANTRY_ANGLE', 'LAYER_ENERGY(MeV)'], hue='GANTRY_ANGLE', corner=True)
+    plt.tight_layout()
     plt.show()
+    plt.clf()
 
     # only_one_angle = qa_dataframe.loc[qa_dataframe['GANTRY_ANGLE'] == 0.0]
     # only_one_energy = qa_dataframe.loc[qa_dataframe['LAYER_ENERGY(MeV)'] == 100.].astype({'GANTRY_ANGLE':float})
@@ -109,12 +112,6 @@ def plot_qa_beams(qa_df):
         plt.show()
 
     return None
-        
-
-def post_process(qa_df, energy, gantry):
-    processed = qa_df.loc[(qa_df['LAYER_ENERGY(MeV)'] == energy) & (qa_df['GANTRY_ANGLE'] == gantry)]
-        
-    return processed
 
 
 def fit_sin(t, y):
@@ -175,15 +172,12 @@ def correct_gtr(qa_df):
     plt.tight_layout()
     plt.savefig(f'{output_dir}/QA_gantry_sine_fit.png', dpi=300)
     plt.show()
-
-    return qa_df
       
 
 if __name__ == '__main__':
     qa_dataframe = pd.read_csv('QA_2017-2022_records_data.csv', dtype={'BEAM_ID':str, 'FRACTION_ID':int})
-    # print(qa_dataframe['X_WIDTH(mm)'].min(), qa_dataframe['X_WIDTH(mm)'].max())
-    # print(qa_dataframe['Y_WIDTH(mm)'].min(), qa_dataframe['Y_WIDTH(mm)'].max())
-    # qa_dataframe = post_process(qa_dataframe, energy=100., gantry=0.)
-    # plot_qa_beams(qa_dataframe)
-    qa_dataframe = correct_gtr(qa_dataframe)
-    # get_delta(qa_dataframe)
+    # qa_dataframe = qa_dataframe.loc[qa_dataframe['FRACTION_ID'] > 20220000]
+    print(qa_dataframe.FRACTION_ID.drop_duplicates())
+    print('Read dataframe .. DONE')
+    plot_qa_beams(qa_dataframe)
+    correct_gtr(qa_dataframe)
