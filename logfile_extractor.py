@@ -1368,13 +1368,12 @@ class MachineLog():
             delta_shape = self.patient_delta_df.shape
             if self.patient_record_df.shape != delta_shape:
                 print(f'  /x\ Dataframe shape does not match deltaframe shape [{self.patient_record_df.shape} vs. {self.patient_delta_df.shape}], proceed with caution..')
-                return None
 
         except AttributeError:
             print(f'''\nUnable to locate patient deltaframe for patient-ID {self.patient_id}, calling prepare_deltaframe()..''')
             self.prepare_deltaframe()
         
-        to_drop, to_concat = ['DRILL_TIME(ms)', 'FRACTION_ID', 'LAYER_ID', 'TOTAL_LAYERS', 'SPOT_ID', 'SQDIST_TO_ISO(mm)'], []
+        to_drop, to_concat = ['FRACTION_ID', 'LAYER_ID', 'TOTAL_LAYERS', 'SPOT_ID'], []
 
         print('Gathering correlation data from patient database..')
         for this_record in other_records:
@@ -1407,8 +1406,8 @@ class MachineLog():
                     this_joint_df['DIST_TO_ISO(mm)'] = np.sqrt(this_record_df['SQDIST_TO_ISO(mm)'].to_numpy())
                     to_concat.append(this_joint_df)
                 else:
-                    print(f'  /!\ Dataframe shapes do not match [{this_record_df.shape} vs. {this_joint_df.shape}], skipping patient-ID {this_patient_id}..')
-                    continue
+                    print(f'  /!\ Dataframe shapes do not match [{this_record_df.shape} vs. {this_joint_df.shape}]')
+                    # continue
             
             else:
                 this_joint_df.drop(columns=to_drop, inplace=True)
@@ -1430,7 +1429,7 @@ class MachineLog():
         # g._legend.remove()
         plt.legend(bbox_to_anchor=(1, 1))
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/pairplot.png', dpi=1000)
+        plt.savefig(f'{output_dir}/{self.patient_id}_pairplot.png', dpi=1000)
 
 
     def delta_dependencies(self):
@@ -1878,9 +1877,9 @@ class MachineLog():
                 beam_df = this_record_df.loc[this_record_df['BEAM_ID'] == beam_id]
                 beam_fxs = beam_df['FRACTION_ID'].drop_duplicates()
                 ref_df = beam_df.loc[beam_df['FRACTION_ID'] == beam_fxs.iloc[0]]
-                date_axis, fx_dist_means, fx_dist_stds = [], [], []
+                date_axis, fx_dist_means = [], []
                 for fx_id in beam_fxs[1:]:
-                    ref_df_copy = ref_df
+                    ref_df_copy = ref_df.copy()
                     fx_df = beam_df.loc[beam_df['FRACTION_ID'] == fx_id]
                     while len(fx_df) != len(ref_df_copy):
                         print(f'    Correcting fx-ID {fx_id}')
@@ -1906,14 +1905,9 @@ class MachineLog():
                     try:
                         dx = fx_df['X_POSITION(mm)'].to_numpy() - ref_df_copy['X_POSITION(mm)'].to_numpy()
                         dy = fx_df['Y_POSITION(mm)'].to_numpy() - ref_df_copy['Y_POSITION(mm)'].to_numpy()
-                        dist = [np.linalg.norm(tup) for tup in zip(dx, dy)]
-                        fx_dist_means.append(np.mean(dist)), fx_dist_stds.append(np.std(dist)), date_axis.append(date)
+                        shift_vectors = [np.array(tup) for tup in zip(dx, dy)]
+                        fx_dist_means.append(np.linalg.norm(sum(shift_vectors) / len(shift_vectors))), date_axis.append(date)
                     except:
-                        # fig2 = plt.figure()
-                        # print(record_file, fx_id, beam_id)
-                        # plt.scatter(fx_df['X_POSITION(mm)'], fx_df['Y_POSITION(mm)'])
-                        # plt.scatter(ref_df_copy['X_POSITION(mm)'], ref_df_copy['Y_POSITION(mm)'])
-                        # plt.show()
                         print('help')                
 
                 if not all:
@@ -1948,58 +1942,55 @@ class MachineLog():
                 break 
 
         beam_list = self.patient_record_df['BEAM_ID'].drop_duplicates()
-        # fig, axs = plt.subplots(2, len(beam_list), figsize=(50, 10), dpi=80)
-        # ax0 = fig.add_subplot(111, frameon=False)
-        # ax0.set_xticks([]), ax0.set_yticks([])
-        # for i, beam_id in enumerate(beam_list):
-        #     beam_df = self.patient_record_df.loc[self.patient_record_df['BEAM_ID'] == beam_id]
-        #     delta_df = self.patient_delta_df.loc[self.patient_delta_df['BEAM_ID'] == beam_id]
-        #     delta_df.index = beam_df.index
-        #     joint_df = pd.concat([beam_df, delta_df], axis=1)
-        #     joint_df.dropna(inplace=True)
-        #     plan_x = joint_df['DELTA_X(mm)'].to_numpy() + joint_df['X_POSITION(mm)'].to_numpy()
-        #     plan_y = joint_df['DELTA_Y(mm)'].to_numpy() + joint_df['Y_POSITION(mm)'].to_numpy()
-            
-        #     if len(beam_df) != len(delta_df):
-        #         print(len(beam_df), len(delta_df))
-        #         continue
-            
-        #     bins = 80
-        #     try:
-        #         axs[0, i].hist(delta_df['DELTA_X(mm)'], bins=bins, label='log-file X')
-        #         axs[0, i].hist(plan_x - beam_df['X_POSITION_CORR(mm)'].to_numpy(), bins=bins, label='log-file X\n(corrected for iso shift)', alpha=0.5)
-        #         axs[0, i].set_xlim(-2, 2)
-        #         axs[0, i].annotate(f'{beam_df.GANTRY_ANGLE.mean():.2f}°', xy=(0.05, 0.90), xycoords='axes fraction')
-        #         axs[1, i].hist(delta_df['DELTA_Y(mm)'], bins=bins, label='log-file Y')
-        #         axs[1, i].hist(plan_y - beam_df['Y_POSITION_CORR(mm)'].to_numpy(), bins=bins, label='log-file Y\n(corrected for iso shift)', alpha=0.5)
-        #         axs[1, i].set_xlim(-2, 2)
-        #         axs[1, i].annotate(f'{beam_df.GANTRY_ANGLE.mean():.2f}°', xy=(0.05, 0.90), xycoords='axes fraction')
-        #     except:
-        #         pass
-        
-        # axs[0, -1].legend()
-        # axs[1, -1].legend()
-        # plt.title(f'Positional difference to plan (patient-ID {self.patient_id})', fontweight='bold')
-        # plt.savefig(f'{output_dir}/{self.patient_id}_gtr_corrected_hist.png', dpi=600)
-        # plt.show()
-        # plt.clf()
-
+        fig, axs = plt.subplots(2, len(beam_list), figsize=(50, 10), dpi=80)
+        ax0 = fig.add_subplot(111, frameon=False)
+        ax0.set_xticks([]), ax0.set_yticks([])
         for i, beam_id in enumerate(beam_list):
             beam_df = self.patient_record_df.loc[self.patient_record_df['BEAM_ID'] == beam_id]
             delta_df = self.patient_delta_df.loc[self.patient_delta_df['BEAM_ID'] == beam_id]
             delta_df.index = beam_df.index
-            diff_cols = delta_df.columns.difference(beam_df.columns)
-            joint_df = pd.concat([beam_df, delta_df[diff_cols]], axis=1)
+            joint_df = pd.concat([beam_df, delta_df], axis=1)
             joint_df.dropna(inplace=True)
-
-            if joint_df.empty or i != 3:
-                continue
-            
             plan_x = joint_df['DELTA_X(mm)'].to_numpy() + joint_df['X_POSITION(mm)'].to_numpy()
             plan_y = joint_df['DELTA_Y(mm)'].to_numpy() + joint_df['Y_POSITION(mm)'].to_numpy()
-            joint_df['CORR_DELTA_X'] = plan_x - beam_df['X_POSITION_CORR(mm)'].to_numpy()
-            joint_df['CORR_DELTA_Y'] = plan_y - beam_df['Y_POSITION_CORR(mm)'].to_numpy()
-            joint_df['DIST_TO_ISO(mm)'] = joint_df['SQDIST_TO_ISO(mm)'].apply(np.sqrt)
+            
+            if len(beam_df) != len(delta_df):
+                print(len(beam_df), len(delta_df))
+                continue
+            
+            bins = 80
+            axs[0, i].hist(joint_df['DELTA_X(mm)'], bins=bins, label='log-file X')
+            axs[0, i].hist(plan_x - joint_df['X_POSITION_CORR(mm)'].to_numpy(), bins=bins, label='log-file X\n(corrected for iso shift)', alpha=0.5)
+            axs[0, i].set_xlim(-2, 2)
+            axs[0, i].annotate(f'{beam_df.GANTRY_ANGLE.mean():.2f}°', xy=(0.05, 0.90), xycoords='axes fraction')
+            axs[1, i].hist(joint_df['DELTA_Y(mm)'], bins=bins, label='log-file Y')
+            axs[1, i].hist(plan_y - joint_df['Y_POSITION_CORR(mm)'].to_numpy(), bins=bins, label='log-file Y\n(corrected for iso shift)', alpha=0.5)
+            axs[1, i].set_xlim(-2, 2)
+            axs[1, i].annotate(f'{beam_df.GANTRY_ANGLE.mean():.2f}°', xy=(0.05, 0.90), xycoords='axes fraction')
+        
+        axs[0, -1].legend()
+        axs[1, -1].legend()
+        plt.title(f'Positional difference to plan (patient-ID {self.patient_id})', fontweight='bold')
+        plt.savefig(f'{output_dir}/{self.patient_id}_gtr_corrected_hist.png', dpi=600)
+        plt.show()
+        plt.clf()
+
+        # for i, beam_id in enumerate(beam_list):
+        #     beam_df = self.patient_record_df.loc[self.patient_record_df['BEAM_ID'] == beam_id]
+        #     delta_df = self.patient_delta_df.loc[self.patient_delta_df['BEAM_ID'] == beam_id]
+        #     delta_df.index = beam_df.index
+        #     diff_cols = delta_df.columns.difference(beam_df.columns)
+        #     joint_df = pd.concat([beam_df, delta_df[diff_cols]], axis=1)
+        #     joint_df.dropna(inplace=True)
+
+        #     if joint_df.empty or i != 3:
+        #         continue
+            
+        #     plan_x = joint_df['DELTA_X(mm)'].to_numpy() + joint_df['X_POSITION(mm)'].to_numpy()
+        #     plan_y = joint_df['DELTA_Y(mm)'].to_numpy() + joint_df['Y_POSITION(mm)'].to_numpy()
+        #     joint_df['CORR_DELTA_X'] = plan_x - beam_df['X_POSITION_CORR(mm)'].to_numpy()
+        #     joint_df['CORR_DELTA_Y'] = plan_y - beam_df['Y_POSITION_CORR(mm)'].to_numpy()
+        #     joint_df['DIST_TO_ISO(mm)'] = joint_df['SQDIST_TO_ISO(mm)'].apply(np.sqrt)
 
             # x_deltas = {}
             # for i, fx in enumerate(joint_df.FRACTION_ID.drop_duplicates().to_list()):
@@ -2012,10 +2003,10 @@ class MachineLog():
 
 
             # sns.histplot(joint_df[['DELTA_X(mm)', 'CORR_DELTA_X']])
-            print(joint_df.columns)
-            hue = 'Y_POSITION(mm)'
-            sns.pairplot(joint_df.loc[joint_df['FRACTION_ID'] == self.fraction_list[1]][['DELTA_X(mm)', 'DELTA_Y(mm)', hue]], vars=['DELTA_X(mm)', 'DELTA_Y(mm)'], hue=hue, corner=True)
-            plt.show()
+            # print(joint_df.columns)
+            # hue = 'Y_POSITION(mm)'
+            # sns.pairplot(joint_df.loc[joint_df['FRACTION_ID'] == self.fraction_list[1]][['DELTA_X(mm)', 'DELTA_Y(mm)', hue]], vars=['DELTA_X(mm)', 'DELTA_Y(mm)'], hue=hue, corner=True)
+            # plt.show()
 
 
             
@@ -2027,32 +2018,33 @@ if __name__ == '__main__':
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/'
     # root_dir = r'/home/luke/Logfile_Extraction/1588055/Logfiles'
+    root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
     # root_dir = r'/home/luke/Logfile_Extraction/converted'
-    root = Tk()
-    root_dir = filedialog.askdirectory()
-    root.destroy()
+    # root = Tk()
+    # root_dir = filedialog.askdirectory()
+    # root.destroy()
     
-    patients = {}
-    print('Searching for log-file directories with existent plans..')
-    for root, dir, files in os.walk(root_dir):
-        if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
-            patient_id = root.split('\\')[-1]
-            print(f'''  Found {patient_id}''')
-            patients[patient_id] = os.path.join(root, 'Logfiles')
-    for patiend_id, log_dir in patients.items():
-        print(f'\n...STARTING PATIENT {patiend_id}...\n')
-        log = MachineLog(log_dir)
-        log.prepare_dataframe()
-        log.prepare_deltaframe()
+    # patients = {}
+    # print('Searching for log-file directories with existent plans..')
+    # for root, dir, files in os.walk(root_dir):
+    #     if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
+    #         patient_id = root.split('\\')[-1]
+    #         print(f'''  Found {patient_id}''')
+    #         patients[patient_id] = os.path.join(root, 'Logfiles')
+    # for patiend_id, log_dir in patients.items():
+    #     print(f'\n...STARTING PATIENT {patiend_id}...\n')
+    #     log = MachineLog(log_dir)
+        # log.prepare_dataframe()
+        # log.prepare_deltaframe()
 
-    # log = MachineLog(root_dir)
+    log = MachineLog(root_dir)
     # log.prepare_dataframe()
     # log.plot_beam_layers()
     # log.prepare_qa_dataframe()
     # log.prepare_deltaframe()
     # log.beam_histos()
     # log.delta_dependencies()
-    # log.fractional_evolution(all=False)
+    log.fractional_evolution(all=False)
     # log.delta_correlation_matrix(gtr_only=False)
 
 else:
