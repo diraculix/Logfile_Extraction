@@ -817,10 +817,11 @@ class MachineLog():
     
 
     '''
-    Shared searching function invoked by other methods, perform os.walk() to identify treatment plan matching given log-file data
+    Shared searching function invoked by other methods, identify treatment plan matching given log-file data
     Requires:   Written .csv dataframe in self.dataframe_destination
     Arguments:  fraction_id/beam_id - Desired treatment fraction/beam present in dataframe
                 verbose - if True, print output and warning, else supress them
+    Operation:  Perform os.walk() combined with filter criteria to find plan containing desired fraction beam
     Returns:    plan_dcm - DICOM filename
                 beam_ds - beam dataset, read-in with pydicom
     '''
@@ -888,6 +889,7 @@ class MachineLog():
                 mode:
                     record - sort irradiated spots from record file to plan, neglect tuning spots
                     tuning - identify spots omitted by ScanAlgo in case of high-weighted tuning (important for dose recon)
+    Operation:  Map spots in each log layer to plan layer sequence by minimum euclidian distance (nearest neighbour search)
     Returns:    sorting_dict - nested dictionary working on spot_id in respective layer_id, i.e. sorting_dict[layer_id][spot_id] = plan_id
     '''
     def spot_sorter(self, fraction_id, beam_id, mode='record'):
@@ -961,10 +963,13 @@ class MachineLog():
         return sorting_dict       
         
 
-    def plot_beam_layers(self):     # For all layers and last fraction of selected beam:
-                                    # derive scatter plot of (x,y)-positions from logfile, 
+    '''
+    Plot all spotmaps (layers) of last fraction of selected beam
+    '''
+    def plot_beam_layers(self):     
+        # For all layers and last fraction of selected beam:
+        # derive scatter plot of (x,y)-positions from logfile, 
                                     # compare vs. planned positions extracted from RP*.dcm
-
         beam_list = self.patient_record_df['BEAM_ID'].drop_duplicates()
         indices = beam_list.index.to_list()
 
@@ -2019,31 +2024,31 @@ class MachineLog():
 if __name__ == '__main__':
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBILTest01_1588055/Logfiles'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBIL001_671075/Logfiles'
-    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
+    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/'
     # root_dir = r'/home/luke/Logfile_Extraction/1588055/Logfiles'
     # root_dir = r'/home/luke/Logfile_Extraction/converted'
-    # root = Tk()
-    # root_dir = filedialog.askdirectory()
-    # root.destroy()
+    root = Tk()
+    root_dir = filedialog.askdirectory()
+    root.destroy()
     
-    # patients = {}
-    # print('Searching for log-file directories with existent plans..')
-    # for root, dir, files in os.walk(root_dir):
-    #     if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
-    #         patient_id = root.split('\\')[-1]
-    #         print(f'''  Found {patient_id}''')
-    #         patients[patient_id] = os.path.join(root, 'Logfiles')
-    # for patiend_id, log_dir in patients.items():
-    #     print(f'\n...STARTING PATIENT {patiend_id}...\n')
-    #     log = MachineLog(log_dir)
-    #     # log.prepare_dataframe()
-    #     log.prepare_deltaframe()
+    patients = {}
+    print('Searching for log-file directories with existent plans..')
+    for root, dir, files in os.walk(root_dir):
+        if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
+            patient_id = root.split('\\')[-1]
+            print(f'''  Found {patient_id}''')
+            patients[patient_id] = os.path.join(root, 'Logfiles')
+    for patiend_id, log_dir in patients.items():
+        print(f'\n...STARTING PATIENT {patiend_id}...\n')
+        log = MachineLog(log_dir)
+        log.prepare_dataframe()
+        log.prepare_deltaframe()
 
-    log = MachineLog(root_dir)
+    # log = MachineLog(root_dir)
     # log.prepare_dataframe()
     # log.plot_beam_layers()
-    log.prepare_qa_dataframe()
+    # log.prepare_qa_dataframe()
     # log.prepare_deltaframe()
     # log.beam_histos()
     # log.delta_dependencies()
