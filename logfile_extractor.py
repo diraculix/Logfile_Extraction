@@ -1028,20 +1028,21 @@ class MachineLog():
             tuning_points_log = [tuple for tuple in zip(layer_tuning_df['X_POSITION(mm)'].to_list(), layer_tuning_df['Y_POSITION(mm)'].to_list())]
             spot_points_sorted = [spot_points_log[beam_sorting_dict[layer_id][i]] for i in range(len(spot_points_log))]
             
-            # if beam_id == '03' and layer_id == 13:
-            #     fig2, ax2 = plt.subplots(figsize=(6, 6))
-            #     ax2.plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', label='Planned')
-            #     ax2.plot(*zip(*spot_points_log), marker='o', markerfacecolor='None', linestyle='--', color='grey', label='Log-file original')
-            #     ax2.plot(*zip(*spot_points_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', label='Log-file sorted')
-            #     ax2.plot(*zip(*tuning_points_log), marker='o', markerfacecolor='None', linestyle='None', color='limegreen', label='Tuning spot(s)')
-            #     # ax2.annotate(f'Beam {beam_id} | Layer #{str(layer_id + 1).zfill(2)} | $\Delta$ = {abs(len(plan_x_positions) - len(x_positions))}', xy=(1.0, 1.0), xycoords='axes points')
-            #     ax2.set_xlabel('Spot $x$-position @ISO [mm]')
-            #     ax2.set_ylabel('Spot $y$-position @ISO [mm]')
-            #     ax2.legend()
-            #     fig2.tight_layout()
-            #     fig2.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_spotmap_KS.png', dpi=2000)
+            if beam_id == '02' and layer_id == 9:
+                fig2, ax2 = plt.subplots(figsize=(6, 6))
+                ax2.plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', label='Planned')
+                ax2.plot(*zip(*spot_points_log), marker='o', markerfacecolor='None', linestyle='--', color='grey', label='Log-file original')
+                ax2.plot(*zip(*spot_points_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', label='Log-file sorted')
+                ax2.plot(*zip(*tuning_points_log), marker='o', markerfacecolor='None', linestyle='None', color='limegreen', label='Tuning spot(s)')
+                # ax2.annotate(f'Beam {beam_id} | Layer #{str(layer_id + 1).zfill(2)} | $\Delta$ = {abs(len(plan_x_positions) - len(x_positions))}', xy=(1.0, 1.0), xycoords='axes points')
+                ax2.set_xlabel('Spot $x$-position @ISO [mm]')
+                ax2.set_ylabel('Spot $y$-position @ISO [mm]')
+                ax2.legend()
+                fig2.tight_layout()
+                # fig2.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_spotmap_KS.png', dpi=2000)
+                plt.show()
                
-            #     return None
+                return None
 
             axs[layer_id].plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Planned')
             axs[layer_id].plot(*zip(*spot_points_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Log-file sorted')
@@ -1465,28 +1466,28 @@ class MachineLog():
         print(f'''\nSelected option is ({choice}) {options[choice - 1]}. Starting..''')
 
         if choice == 1:
-            fig, axs = plt.subplots(2, 2, figsize=(7, 6))
+            fig, axs = plt.subplots(2, 2, figsize=(10, 6))
             ax0 = fig.add_subplot(111, frameon=False)
             ax0.set_xticks([])
             ax0.set_yticks([])
             axs = axs.flatten()
-            axs[0].hist(self.patient_delta_df['DELTA_X(mm)'], bins=80, alpha=0.7, edgecolor='black', label=f'''$\mu_x =$ {self.patient_delta_df['DELTA_X(mm)'].mean():.3f} mm\n$\sigma_x =$ {self.patient_delta_df['DELTA_X(mm)'].std():.3f} mm''')
+            axs[0].hist(self.patient_delta_df['DELTA_X(mm)'], bins=80, alpha=0.7, edgecolor='black', label=f'''$\mu_x =$ {self.patient_delta_df['DELTA_X(mm)'].mean():.3f} mm\n$\sigma_x =$ {self.patient_delta_df['DELTA_X(mm)'].std():.5f} mm''')
             axs[0].axvline(self.patient_delta_df['DELTA_X(mm)'].mean(), ls='-', color='black', lw=0.5)
             axs[0].axvline(0.0, ls='--', color='black', lw=0.5)
             axs[0].set_xlabel('$\Delta x$ to plan [mm]')
             axs[0].set_xlim(-2, 2)
-            axs[1].hist(self.patient_delta_df['DELTA_Y(mm)'], bins=90, alpha=0.7, edgecolor='black', label=f'''$\mu_y =$ {self.patient_delta_df['DELTA_Y(mm)'].mean():.3f} mm\n$\sigma_y =$ {self.patient_delta_df['DELTA_Y(mm)'].std():.3f} mm''')
+            axs[1].hist(self.patient_delta_df['DELTA_Y(mm)'], bins=90, alpha=0.7, edgecolor='black', label=f'''$\mu_y =$ {self.patient_delta_df['DELTA_Y(mm)'].mean():.3f} mm\n$\sigma_y =$ {self.patient_delta_df['DELTA_Y(mm)'].std():.5f} mm''')
             axs[1].axvline(self.patient_delta_df['DELTA_Y(mm)'].mean(), ls='-', color='black', lw=0.5)
             axs[1].axvline(0.0, ls='--', color='black', lw=0.5)
             axs[1].set_xlabel('$\Delta y$ to plan [mm]')
             axs[1].set_xlim(-2, 2)
-            axs[2].hist(self.patient_delta_df['DELTA_MU'], bins=1500, color='tab:green', alpha=0.7, edgecolor='black', label=f'''$\mu_D =$ {self.patient_delta_df['DELTA_MU'].mean():.3f} MU\n$\sigma_D =$ {self.patient_delta_df['DELTA_MU'].std():.3f} MU''')
+            axs[2].hist(self.patient_delta_df['DELTA_MU'], bins=1500, color='tab:green', alpha=0.7, edgecolor='black', label=f'''$\mu_D =$ {self.patient_delta_df['DELTA_MU'].mean():.3f} MU\n$\sigma_D =$ {self.patient_delta_df['DELTA_MU'].std():.5f} MU''')
             axs[2].axvline(self.patient_delta_df['DELTA_MU'].mean(), ls='-', color='black', lw=0.5)
             axs[2].axvline(0.0, ls='--', color='black', lw=0.5)
             axs[2].set_xlabel('Dose difference to plan [MU]')
             axs[2].set_xlim(-0.005, 0.005)
             # axs[2].set_ylim(0, 30000)
-            axs[3].hist(self.patient_delta_df['DELTA_E(MeV)'].drop_duplicates(), bins=17, color='tab:red', alpha=0.7, edgecolor='black', label=f'''$\mu_E =$ {self.patient_delta_df['DELTA_E(MeV)'].mean():.3f} MeV\n$\sigma_E =$ {self.patient_delta_df['DELTA_E(MeV)'].std():.3f} MeV''')
+            axs[3].hist(self.patient_delta_df['DELTA_E(MeV)'].drop_duplicates(), bins=17, color='tab:red', alpha=0.7, edgecolor='black', label=f'''$\mu_E =$ {self.patient_delta_df['DELTA_E(MeV)'].mean():.3f} MeV\n$\sigma_E =$ {self.patient_delta_df['DELTA_E(MeV)'].std():.5f} MeV''')
             axs[3].axvline(self.patient_delta_df['DELTA_E(MeV)'].mean(), ls='-', color='black', lw=0.5)
             axs[3].axvline(0.0, ls='--', color='black', lw=0.5)
             axs[3].set_xlabel('Energy difference to plan [MeV]')
@@ -1498,7 +1499,7 @@ class MachineLog():
                 ax.legend()
             # ax0.set_title(f'Delta Histograms for Patient-ID {self.patient_id}', fontweight='bold')
             plt.tight_layout()
-            plt.savefig(f'{output_dir}/{self.patient_id}_histograms.png', dpi=2000)
+            plt.savefig(f'{output_dir}/{self.patient_id}_histograms.png', dpi=300)
             plt.show()            
         
         if choice == 2:  # gantry angle vs. delta(x,y)
@@ -1703,7 +1704,7 @@ class MachineLog():
         # print(f'Total beamtime\t{np.median(totals):.3f}\t{np.min(totals):.3f}\t{np.max(totals):.3f}\t{np.std(totals):.3f}\n')
         
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/{self.patient_id}_beam_timings_KS.png', dpi=600)        
+        plt.savefig(f'{output_dir}/{self.patient_id}_beam_timings_KS.png', dpi=300)        
         plt.show()
 
 
@@ -1863,7 +1864,7 @@ class MachineLog():
             if file.__contains__('records') and file.endswith('.csv') and not file.__contains__('qa'):
                 other_records.append(os.path.join(self.df_destination, file))
 
-        fig = plt.figure(figsize=(10, 6))
+        fig = plt.figure(figsize=(10, 4))
         for n, record_file in enumerate(other_records):
             print(f'\nStarting record dataframe ({n + 1}/{len(other_records)}) {record_file}..')
             if not all:
@@ -1920,7 +1921,7 @@ class MachineLog():
         
         plt.xlabel('Date [YYYY-MM-DD]')
         plt.ylabel('Mean distance to reference [mm]')
-        plt.ylim(0.0, 1.0)
+        plt.ylim(0.0, 0.5)
         plt.grid(axis='y')
         if not all:
             plt.title(f'Delivery fluctuation of spot position (pat.-ID {self.patient_id})', fontweight='bold')
@@ -2044,7 +2045,7 @@ if __name__ == '__main__':
     # log.prepare_deltaframe()
     # log.beam_histos()
     # log.delta_dependencies()
-    log.fractional_evolution(all=False)
+    log.fractional_evolution(all=True)
     # log.delta_correlation_matrix(gtr_only=False)
 
 else:
