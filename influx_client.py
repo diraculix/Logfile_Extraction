@@ -11,13 +11,13 @@ org = "OncoRay"
 bucket = "GTR2"
 url = "http://g40invivodossrv:8086"
 
-print(f'Establishing connection to {url}/{org}/{bucket} ..')
+print(f'[{datetime.utcnow()}] Establishing connection to {url}/{org}/{bucket} ..')
 with InfluxDBClient(url=url, token=token, org=org) as client:
+    host = "PC43doktoranden"
     write_api = client.write_api(write_options=SYNCHRONOUS)
-    
-    print('> Influx: Connected to database, monitor running ..')
+    print(f'[{datetime.utcnow()}] > Influx: Connected to database, monitor running..', end='\r')
+
     while True:
-        host = "PC43doktoranden"
         try:
             point = Point("cpu") \
                 .tag("host", host) \
@@ -35,7 +35,7 @@ with InfluxDBClient(url=url, token=token, org=org) as client:
             time.sleep(5)
         
         except KeyboardInterrupt:
-            print(f'> Influx: Monitor on host {host} stopped, disconnecting client..')
+            print(f'[{datetime.utcnow()}] > Influx: Monitor on host {host} stopped, disconnecting client..')
             break
     
     client.close()
