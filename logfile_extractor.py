@@ -1441,8 +1441,8 @@ class MachineLog():
                 break            
 
         try:
-            if self.patient_record_df.shape != self.patient_delta_df.shape:
-                print(f'  /!\ Dataframe shape does not match deltaframe shape [{self.patient_record_df.shape} vs. {self.patient_delta_df.shape}], proceed with caution..')
+            if len(self.patient_record_df) != len(self.patient_delta_df):
+                print(f'  /!\ Dataframe length does not match deltaframe length [{len(self.patient_record_df)} vs. {len(self.patient_record_df)}], proceed with caution..')
         except AttributeError:
             print(f'''\nUnable to locate patient deltaframe for patient-ID {self.patient_id}, calling prepare_deltaframe()..''')
             self.prepare_deltaframe()
@@ -1500,8 +1500,13 @@ class MachineLog():
             # ax0.set_title(f'Delta Histograms for Patient-ID {self.patient_id}', fontweight='bold')
             plt.tight_layout()
             plt.savefig(f'{output_dir}/{self.patient_id}_histograms.png', dpi=300)
-            plt.show()            
-        
+            # plt.show()
+
+            print(f'''dx[mm]:\t\tmin={round(self.patient_delta_df['DELTA_X(mm)'].min(), 3)}\tmax={round(self.patient_delta_df['DELTA_X(mm)'].max(), 3)}\tmean={round(self.patient_delta_df['DELTA_X(mm)'].mean(), 3)}\tstd={round(self.patient_delta_df['DELTA_X(mm)'].std(), 3)}''')
+            print(f'''dy[mm]:\t\tmin={round(self.patient_delta_df['DELTA_Y(mm)'].min(), 3)}\tmax={round(self.patient_delta_df['DELTA_Y(mm)'].max(), 3)}\tmean={round(self.patient_delta_df['DELTA_Y(mm)'].mean(), 3)}\tstd={round(self.patient_delta_df['DELTA_Y(mm)'].std(), 3)}''')
+            print(f'''dD[MU]:\t\tmin={round(self.patient_delta_df['DELTA_MU'].min(), 4)}\tmax={round(self.patient_delta_df['DELTA_MU'].max(), 4)}\tmean={round(self.patient_delta_df['DELTA_MU'].mean(), 4)}\tstd={round(self.patient_delta_df['DELTA_MU'].std(), 4)}''')
+            print(f'''dE[MeV]:\tmin={round(self.patient_delta_df['DELTA_E(MeV)'].min(), 4)}\tmax={round(self.patient_delta_df['DELTA_E(MeV)'].max(), 4)}\tmean={round(self.patient_delta_df['DELTA_E(MeV)'].mean(), 4)}\tstd={round(self.patient_delta_df['DELTA_E(MeV)'].std(), 4)}''')
+
         if choice == 2:  # gantry angle vs. delta(x,y)
             other_dfs = [pd.read_csv(os.path.join(self.df_destination, file), index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str}) for file in sorted(os.listdir(self.df_destination)) if file.__contains__('delta') and file.endswith('.csv')]
             print('  Concatenating existent patient dataframes..')
@@ -2019,7 +2024,7 @@ if __name__ == '__main__':
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/'
     # root_dir = r'/home/luke/Logfile_Extraction/1588055/Logfiles'
-    root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
+    # root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
     # root_dir = r'/home/luke/Logfile_Extraction/converted'
     # root = Tk()
     # root_dir = filedialog.askdirectory()
@@ -2035,18 +2040,21 @@ if __name__ == '__main__':
     # for patiend_id, log_dir in patients.items():
     #     print(f'\n...STARTING PATIENT {patiend_id}...\n')
     #     log = MachineLog(log_dir)
-        # log.prepare_dataframe()
-        # log.prepare_deltaframe()
+    #     # log.prepare_dataframe()
+    #     # log.prepare_deltaframe()
+    #     log.delta_dependencies()
 
-    log = MachineLog(root_dir)
+    # log = MachineLog(root_dir)
     # log.prepare_dataframe()
     # log.plot_beam_layers()
     # log.prepare_qa_dataframe()
     # log.prepare_deltaframe()
     # log.beam_histos()
     # log.delta_dependencies()
-    log.fractional_evolution(all=True)
+    # log.fractional_evolution(all=True)
     # log.delta_correlation_matrix(gtr_only=False)
+    pass
 
 else:
     print('>> Module', __name__, 'loaded')
+    
