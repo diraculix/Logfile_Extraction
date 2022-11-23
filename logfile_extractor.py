@@ -165,7 +165,7 @@ class MachineLog():
 
 
     '''
-    Main data extraction function:
+    Main data extraction method:
     Requires:   Initialized valid log-file directory
     Arguments:  None
     Operation:  Loop over fraction directories, collect relevant beam data in pandas dataframe, write to .csv
@@ -187,7 +187,7 @@ class MachineLog():
             qa_median_x.append(qa_median_x[0])
             qa_median_y = qa_df['DELTA_Y[mm]'].to_list()
             qa_median_y.append(qa_median_y[0])
-            correct_x = fit_sin(qa_angles, qa_median_x)  # <-- function
+            correct_x = fit_sin(qa_angles, qa_median_x)  # correct_x/y are functions
             correct_y = fit_sin(qa_angles, qa_median_y)
         except FileNotFoundError:
             '  /!\ Spot position correction data not found, no funciton will be applied..'
