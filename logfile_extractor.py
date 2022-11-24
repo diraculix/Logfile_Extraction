@@ -32,8 +32,7 @@ output_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\output'  # set out
 if not os.path.isdir(os.path.join(output_dir, '..')):
     output_dir = r'/home/luke/Logfile_Extraction/output'
 
-try: os.mkdir(output_dir)
-except: pass
+if not os.path.isdir(output_dir): os.mkdir(output_dir)
 
 
 '''
@@ -93,8 +92,8 @@ class MachineLog():
         if not os.path.isdir(os.path.join(self.df_destination, '..')):            
             self.df_destination = r'/home/luke/Logfile_Extraction/dataframes'
         
-        try: os.mkdir(self.df_destination)
-        except: pass
+        if not os.path.isdir(self.df_destination):
+            os.mkdir(self.df_destination)
 
         # initialize fraction and beam list by directory names
         self.fraction_list = sorted(os.listdir(self.logfile_dir))
@@ -323,7 +322,7 @@ class MachineLog():
                                 record_file_df.drop(columns=['TIME'], inplace=True)
                                 try:
                                     record_file_df.drop(record_file_df[record_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)
-                                except: pass
+                                except: print(f'  /!\ Count not drop submaps < 0 (layer {layer_id}, beam {beam_id})')
 
                                 record_file_df = record_file_df[record_file_df.groupby('SUBMAP_NUMBER')['SUBMAP_NUMBER'].transform('count') > 1]  # drop all rows without plan-relevant data
                             
@@ -344,7 +343,7 @@ class MachineLog():
                                 spot_drill_time = len(record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap]) * 0.25  # in [ms]
                                 record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DRILL_TIME(ms)']] = spot_drill_time  # assign new column for drill time
                                 accumulated_charge = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DOSE_PRIM(C)']].abs().sum().mean()
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['ACC_CHARGE(C)']] = accumulated_charge  # accumulate charge released per spot
+                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['CHARGE(C)']] = accumulated_charge  # accumulate charge released per spot
 
                                 current_spot_submap = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] > current_spot_submap]['SUBMAP_NUMBER'].min()  # proceed to next submap
                                 current_spot_id += 1  # keep track of spot id
@@ -369,20 +368,18 @@ class MachineLog():
                             record_file_df['LAYER_ENERGY(MeV)'] = layer_energy  # set new column
 
                             # coordinate system transform IBA <-> RayStation/ISO (x <-> y)
-                            record_file_df['X_POS'], record_file_df['Y_POS'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
-                            record_file_df['X_WID'], record_file_df['Y_WID'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
-                            record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
-                            record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
+                            record_file_df['X_POS_IC23(mm)'], record_file_df['Y_POS_IC23(mm)'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
+                            record_file_df['X_WID_IC23(mm)'], record_file_df['Y_WID_IC23(mm)'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
+                            record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
+                            record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
                             record_file_df['X_POSITION_CORR(mm)'] = record_file_df['X_POSITION(mm)'] - correct_x(gantry_angle)  # if correction data is present (experimental)
                             record_file_df['Y_POSITION_CORR(mm)'] = record_file_df['Y_POSITION(mm)'] - correct_y(gantry_angle)
-                            record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID']].apply(map_spot_width, args=(sad_x, ictoiso_x))
-                            record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID']].apply(map_spot_width, args=(sad_y, ictoiso_y))
-                            record_file_df.drop(columns=['X_POS', 'Y_POS', 'X_WID', 'Y_WID'], inplace=True)
+                            record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID_IC23(mm)']].apply(map_spot_width, args=(sad_x, ictoiso_x))
+                            record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID_IC23(mm)']].apply(map_spot_width, args=(sad_y, ictoiso_y))
                             record_file_df['SQDIST_TO_ISO(mm)'] = np.square(record_file_df['X_POSITION(mm)']) + np.square(record_file_df['Y_POSITION(mm)'])
                         
                             # charge to MU conversion using correction factor
-                            record_file_df['MU'] = record_file_df[['ACC_CHARGE(C)']].apply(map_spot_mu, args=(correction_factor, charge_per_mu))
-                            record_file_df.drop(columns=['ACC_CHARGE(C)'], inplace=True)
+                            record_file_df['MU'] = record_file_df[['CHARGE(C)']].apply(map_spot_mu, args=(correction_factor, charge_per_mu))
                             record_file_df.reindex()  # make sure modified layer df is consistent with indexing
                             to_do_layers.append(record_file_df)
                 
@@ -456,7 +453,7 @@ class MachineLog():
                                 spot_drill_time = len(tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap]) * 0.25
                                 tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DRILL_TIME(ms)']] = spot_drill_time
                                 accumulated_charge = tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DOSE_PRIM(C)']].abs().sum().mean()
-                                tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['ACC_CHARGE(C)']] = accumulated_charge
+                                tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['CHARGE(C)']] = accumulated_charge
 
                                 current_spot_submap = tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] > current_spot_submap]['SUBMAP_NUMBER'].min()
                                 current_spot_id += 1
@@ -478,16 +475,13 @@ class MachineLog():
                             layer_energy = np.exp(np.polyval(iba_gtr2_poly, np.log(range_at_iso)))  # [MeV]
                             tuning_file_df['LAYER_ENERGY(MeV)'] = layer_energy
 
-                            tuning_file_df['X_POS'], tuning_file_df['Y_POS'] = tuning_file_df['X_POSITION(mm)'], tuning_file_df['Y_POSITION(mm)']
-                            tuning_file_df['X_WID'], tuning_file_df['Y_WID'] = tuning_file_df['X_WIDTH(mm)'], tuning_file_df['Y_WIDTH(mm)']
-                            tuning_file_df['X_POSITION(mm)'] = tuning_file_df[['Y_POS']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
-                            tuning_file_df['Y_POSITION(mm)'] = tuning_file_df[['X_POS']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
-                            tuning_file_df['X_WIDTH(mm)'] = tuning_file_df[['Y_WID']].apply(map_spot_width, args=(sad_x, ictoiso_x))
-                            tuning_file_df['Y_WIDTH(mm)'] = tuning_file_df[['X_WID']].apply(map_spot_width, args=(sad_y, ictoiso_y))
-                            tuning_file_df.drop(columns=['X_POS', 'Y_POS', 'X_WID', 'Y_WID'], inplace=True)   
-
-                            tuning_file_df['MU'] = tuning_file_df[['ACC_CHARGE(C)']].apply(map_spot_mu, args=(correction_factor, charge_per_mu))
-                            tuning_file_df.drop(columns=['ACC_CHARGE(C)'], inplace=True)
+                            tuning_file_df['X_POS_IC23(mm)'], tuning_file_df['Y_POS_IC23(mm)'] = tuning_file_df['X_POSITION(mm)'], tuning_file_df['Y_POSITION(mm)']
+                            tuning_file_df['X_WID_IC23(mm)'], tuning_file_df['Y_WID_IC23(mm)'] = tuning_file_df['X_WIDTH(mm)'], tuning_file_df['Y_WIDTH(mm)']
+                            tuning_file_df['X_POSITION(mm)'] = tuning_file_df[['Y_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
+                            tuning_file_df['Y_POSITION(mm)'] = tuning_file_df[['X_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
+                            tuning_file_df['X_WIDTH(mm)'] = tuning_file_df[['Y_WID_IC23(mm)']].apply(map_spot_width, args=(sad_x, ictoiso_x))
+                            tuning_file_df['Y_WIDTH(mm)'] = tuning_file_df[['X_WID_IC23(mm)']].apply(map_spot_width, args=(sad_y, ictoiso_y))
+                            tuning_file_df['MU'] = tuning_file_df[['CHARGE(C)']].apply(map_spot_mu, args=(correction_factor, charge_per_mu))
 
                             tuning_file_df.reindex()
                             to_do_tunings.append(tuning_file_df)
@@ -510,7 +504,7 @@ class MachineLog():
                         layer_df['TEMPERATURE(K)'] = temperature
                         layer_df['PRESSURE(hPa)'] = pressure
                         layer_df['FRACTION_ID'] = fraction_id
-                        # layer_df['PATIENT_ID'] = self.patient_id
+                        layer_df['PATIENT_ID'] = self.patient_id
                         layer_df.drop(columns=['SUBMAP_NUMBER'], inplace=True)
                         layer_df = layer_df[~layer_df.index.duplicated(keep='first')]
                     else:
@@ -525,7 +519,7 @@ class MachineLog():
                         tuning_df['GANTRY_ANGLE'] = gantry_angle
                         tuning_df['PRESSURE(hPa)'] = pressure
                         tuning_df['FRACTION_ID'] = fraction_id
-                        # tuning_df['PATIENT_ID'] = self.patient_id
+                        tuning_df['PATIENT_ID'] = self.patient_id
                         tuning_df.drop(columns=['SUBMAP_NUMBER'], inplace=True)
                         tuning_df = tuning_df[~tuning_df.index.duplicated(keep='first')]
                     else:
@@ -741,13 +735,13 @@ class MachineLog():
                             
                             # coordinate system transform iba <-> raystation (x <-> y)
                             record_file_df.drop_duplicates(subset=['X_POSITION(mm)', 'Y_POSITION(mm)'], inplace=True)
-                            record_file_df['X_POS'], record_file_df['Y_POS'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
-                            record_file_df['X_WID'], record_file_df['Y_WID'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
-                            record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
-                            record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
-                            record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID']].apply(map_spot_width, args=(sad_x, ictoiso_x))
-                            record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID']].apply(map_spot_width, args=(sad_y, ictoiso_y))
-                            record_file_df.drop(columns=['X_POS', 'Y_POS', 'X_WID', 'Y_WID'], inplace=True)
+                            record_file_df['X_POS_IC23(mm)'], record_file_df['Y_POS_IC23(mm)'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
+                            record_file_df['X_WID_IC23(mm)'], record_file_df['Y_WID_IC23(mm)'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
+                            record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
+                            record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
+                            record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID_IC23(mm)']].apply(map_spot_width, args=(sad_x, ictoiso_x))
+                            record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID_IC23(mm)']].apply(map_spot_width, args=(sad_y, ictoiso_y))
+                            record_file_df.drop(columns=['X_POS_IC23(mm)', 'Y_POS_IC23(mm)', 'X_WID_IC23(mm)', 'Y_WID_IC23(mm)'], inplace=True)
                             record_file_df['DIST_TO_ISO(mm)'] = np.sqrt(np.square(record_file_df['X_POSITION(mm)']) + np.square(record_file_df['Y_POSITION(mm)']))
                             record_file_df.reindex()  # make sure modified layer df is consistent with indexing
                             to_do_layers.append(record_file_df)
