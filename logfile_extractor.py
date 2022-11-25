@@ -379,6 +379,7 @@ class MachineLog():
                             record_file_df['SQDIST_TO_ISO(mm)'] = np.square(record_file_df['X_POSITION(mm)']) + np.square(record_file_df['Y_POSITION(mm)'])
                         
                             # charge to MU conversion using correction factor
+                            record_file_df['CORRECTION_FACTOR'] = correction_factor
                             record_file_df['MU'] = record_file_df[['CHARGE(C)']].apply(map_spot_mu, args=(correction_factor, charge_per_mu))
                             record_file_df.reindex()  # make sure modified layer df is consistent with indexing
                             to_do_layers.append(record_file_df)
@@ -517,6 +518,7 @@ class MachineLog():
                         tuning_df['TOTAL_LAYERS'] = num_layers
                         tuning_df['BEAM_ID'] = beam_id
                         tuning_df['GANTRY_ANGLE'] = gantry_angle
+                        tuning_df['TEMPERATURE(K)'] = temperature
                         tuning_df['PRESSURE(hPa)'] = pressure
                         tuning_df['FRACTION_ID'] = fraction_id
                         tuning_df['PATIENT_ID'] = self.patient_id
@@ -2013,7 +2015,7 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBILTest01_1588055/Logfiles'
+    root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBILTest01_1588055/Logfiles'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBIL001_671075/Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/'
@@ -2034,15 +2036,15 @@ if __name__ == '__main__':
     # for patiend_id, log_dir in patients.items():
     #     print(f'\n...STARTING PATIENT {patiend_id}...\n')
     #     log = MachineLog(log_dir)
-    #     # log.prepare_dataframe()
-    #     # log.prepare_deltaframe()
-    #     log.delta_dependencies()
+    #     log.prepare_dataframe()
+    #     log.prepare_deltaframe()
+        # log.delta_dependencies()
 
-    # log = MachineLog(root_dir)
-    # log.prepare_dataframe()
+    log = MachineLog(root_dir)
+    log.prepare_dataframe()
     # log.plot_beam_layers()
     # log.prepare_qa_dataframe()
-    # log.prepare_deltaframe()
+    log.prepare_deltaframe()
     # log.beam_histos()
     # log.delta_dependencies()
     # log.fractional_evolution(all=True)
