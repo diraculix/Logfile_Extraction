@@ -146,12 +146,12 @@ class MachineLog():
             if fname.__contains__(f'{self.patient_id}_records') and fname.endswith('.csv'):
                 self.record_df_name = fname
                 print(f'''Found patient record dataframe '{self.record_df_name}', reading in..''')
-                self.patient_record_df = pd.read_csv(os.path.join(dirpath, fname), index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+                self.patient_record_df = pd.read_csv(os.path.join(self.df_destination, fname), index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
                 record_df_exists = True
                 if fname.__contains__(f'{self.patient_id}_tuning') and fname.endswith('.csv'):
                     self.tuning_df_name = fname
                     print(f'''Found patient tuning dataframe '{self.tuning_df_name}', reading in..''')
-                    self.patient_tuning_df = pd.read_csv(os.path.join(dirpath, fname), index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+                    self.patient_tuning_df = pd.read_csv(os.path.join(self.df_destination, fname), index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
                     tuning_df_exists = True
                     break
 
