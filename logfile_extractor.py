@@ -24,7 +24,7 @@ import pydicom
 import pandas as pd
 import numpy as np
 import seaborn as sns
-from scipy import optimize, interpolate
+from scipy import optimize
 from tkinter import Tk, filedialog
 from matplotlib import pyplot as plt
 
@@ -88,7 +88,8 @@ class MachineLog():
                     valid_dir = True
         
         # set dataframe storage directory, fallback alternative below
-        self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
+        # self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
+        self.df_destination = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\extracted'
         if not os.path.isdir(os.path.join(self.df_destination, '..')):            
             self.df_destination = r'/home/luke/Logfile_Extraction/dataframes'
         
@@ -141,24 +142,23 @@ class MachineLog():
         
         # check for already existent dataframe for patient, read in and prevent re-creation in this case
         record_df_exists, tuning_df_exists = False, False
-        for dirpath, dirnames, filenames in os.walk(os.path.join(self.df_destination, '..')):  # sweep over root directory, read existing dataframes
-            for fname in filenames:
-                if fname.__contains__(f'{self.patient_id}_records') and fname.endswith('.csv'):
-                    self.record_df_name = fname
-                    print(f'''Found patient record dataframe '{self.record_df_name}', reading in..''')
-                    self.patient_record_df = pd.read_csv(os.path.join(dirpath, fname), index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
-                    record_df_exists = True
-                elif fname.__contains__(f'{self.patient_id}_tuning') and fname.endswith('.csv'):
+        for fname in os.listdir(self.df_destination):  # read existing dataframes
+            if fname.__contains__(f'{self.patient_id}_records') and fname.endswith('.csv'):
+                self.record_df_name = fname
+                print(f'''Found patient record dataframe '{self.record_df_name}', reading in..''')
+                self.patient_record_df = pd.read_csv(os.path.join(dirpath, fname), index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+                record_df_exists = True
+                if fname.__contains__(f'{self.patient_id}_tuning') and fname.endswith('.csv'):
                     self.tuning_df_name = fname
                     print(f'''Found patient tuning dataframe '{self.tuning_df_name}', reading in..''')
                     self.patient_tuning_df = pd.read_csv(os.path.join(dirpath, fname), index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
                     tuning_df_exists = True
-        
+                    break
+
         # if no patient dataframes are found, create them by default
         if not record_df_exists or not tuning_df_exists:
             print(f'''\nUnable to locate patient record/tuning dataframes for patient-ID {self.patient_id}. Please run prepare_dataframe()..''')
             self.patient_record_df, self.patient_tuning_df = pd.DataFrame(), pd.DataFrame()
-            # self.prepare_dataframe()
         
         os.chdir(self.logfile_dir)    
 
@@ -321,8 +321,8 @@ class MachineLog():
                                 record_file_df['DOSE_PRIM(C)'] = charge_col
                                 record_file_df.drop(columns=['TIME'], inplace=True)
                                 try:
-                                    record_file_df.drop(record_file_df[record_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)
-                                except: print(f'  /!\ Count not drop submaps < 0 (layer {layer_id}, beam {beam_id})')
+                                    record_file_df.drop(record_file_df[record_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)  # if split record file, nothing serious
+                                except: pass
 
                                 record_file_df = record_file_df[record_file_df.groupby('SUBMAP_NUMBER')['SUBMAP_NUMBER'].transform('count') > 1]  # drop all rows without plan-relevant data
                             
@@ -376,7 +376,7 @@ class MachineLog():
                             record_file_df['Y_POSITION_CORR(mm)'] = record_file_df['Y_POSITION(mm)'] - correct_y(gantry_angle)
                             record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID_IC23(mm)']].apply(map_spot_width, args=(sad_x, ictoiso_x))
                             record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID_IC23(mm)']].apply(map_spot_width, args=(sad_y, ictoiso_y))
-                            record_file_df['SQDIST_TO_ISO(mm)'] = np.square(record_file_df['X_POSITION(mm)']) + np.square(record_file_df['Y_POSITION(mm)'])
+                            # record_file_df['SQDIST_TO_ISO(mm)'] = np.square(record_file_df['X_POSITION(mm)']) + np.square(record_file_df['Y_POSITION(mm)'])
                         
                             # charge to MU conversion using correction factor
                             record_file_df['CORRECTION_FACTOR'] = correction_factor
@@ -1399,8 +1399,6 @@ class MachineLog():
                     this_joint_df['Y_WIDTH(mm)'] = this_record_df['Y_WIDTH(mm)'].to_list()
                     this_joint_df['PRESSURE(hPa)'] = this_record_df['PRESSURE(hPa)'].to_list()
                     this_joint_df['TEMPERATURE(K)'] = this_record_df['TEMPERATURE(K)'].to_list()
-                    # this_joint_df['SQDIST_TO_ISO(mm)'] = this_record_df['SQDIST_TO_ISO(mm)'].to_list()
-                    this_joint_df['DIST_TO_ISO(mm)'] = np.sqrt(this_record_df['SQDIST_TO_ISO(mm)'].to_numpy())
                     to_concat.append(this_joint_df)
                 else:
                     print(f'  /!\ Dataframe shapes do not match [{this_record_df.shape} vs. {this_joint_df.shape}]')
@@ -1418,11 +1416,11 @@ class MachineLog():
         # plt.savefig(f'{output_dir}/{self.patient_id}_correlation_matrix.png', dpi=150)
         # plt.clf()
         # fig, ax = plt.subplots(1, 1, figsize=(15, 15))
-        # sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'DELTA_MU', 'MU', 'LAYER_ENERGY(MeV)', 'DIST_TO_ISO(mm)'], hue='GANTRY_ANGLE')
+        # sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'DELTA_MU', 'MU', 'LAYER_ENERGY(MeV)'], hue='GANTRY_ANGLE')
         try:
-            g = sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'LAYER_ENERGY(MeV)', 'MU', 'DIST_TO_ISO(mm)', 'GANTRY_ANGLE'], plot_kws=dict(s=10, edgecolor=None, alpha=0.3), corner=True)      
+            g = sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'LAYER_ENERGY(MeV)', 'MU', 'GANTRY_ANGLE'], plot_kws=dict(s=10, edgecolor=None, alpha=0.3), corner=True)      
         except:
-            g = sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'LAYER_ENERGY(MeV)', 'MU', 'DIST_TO_ISO(mm)', 'GANTRY_ANGLE'], plot_kws=dict(s=10, edgecolor=None, alpha=0.3))      
+            g = sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'LAYER_ENERGY(MeV)', 'MU', 'GANTRY_ANGLE'], plot_kws=dict(s=10, edgecolor=None, alpha=0.3))      
         # g._legend.remove()
         plt.legend(bbox_to_anchor=(1, 1))
         plt.tight_layout()
@@ -1867,10 +1865,11 @@ class MachineLog():
 
         fig = plt.figure(figsize=(10, 4))
         for n, record_file in enumerate(other_records):
-            print(f'\nStarting record dataframe ({n + 1}/{len(other_records)}) {record_file}..')
             if not all:
+                print(f'\nStarting record dataframe {record_file}..')
                 this_record_df = self.patient_record_df
             else:
+                print(f'\nStarting record dataframe ({n + 1}/{len(other_records)}) {record_file}..')
                 this_record_df = pd.read_csv(record_file, index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})          
             
             beam_list = this_record_df['BEAM_ID'].drop_duplicates()
@@ -1992,7 +1991,6 @@ class MachineLog():
         #     plan_y = joint_df['DELTA_Y(mm)'].to_numpy() + joint_df['Y_POSITION(mm)'].to_numpy()
         #     joint_df['CORR_DELTA_X'] = plan_x - beam_df['X_POSITION_CORR(mm)'].to_numpy()
         #     joint_df['CORR_DELTA_Y'] = plan_y - beam_df['Y_POSITION_CORR(mm)'].to_numpy()
-        #     joint_df['DIST_TO_ISO(mm)'] = joint_df['SQDIST_TO_ISO(mm)'].apply(np.sqrt)
 
             # x_deltas = {}
             # for i, fx in enumerate(joint_df.FRACTION_ID.drop_duplicates().to_list()):
@@ -2015,16 +2013,20 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBILTest01_1588055/Logfiles'
+    # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBILTest01_1588055/Logfiles'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBIL001_671075/Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/'
     # root_dir = r'/home/luke/Logfile_Extraction/1588055/Logfiles'
     # root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
     # root_dir = r'/home/luke/Logfile_Extraction/converted'
-    # root = Tk()
-    # root_dir = filedialog.askdirectory()
-    # root.destroy()
+    root = Tk()
+    root_dir = filedialog.askdirectory()
+    root.destroy()
+    for i, patient_id in enumerate(os.listdir(root_dir)):
+        print(f'\n...STARTING PATIENT {patient_id} ({i + 1}/{len(os.listdir(root_dir))})...\n')
+        log = MachineLog(os.path.join(root_dir, patient_id))
+        log.prepare_dataframe()
     
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
@@ -2033,18 +2035,18 @@ if __name__ == '__main__':
     #         patient_id = root.split('\\')[-1]
     #         print(f'''  Found {patient_id}''')
     #         patients[patient_id] = os.path.join(root, 'Logfiles')
-    # for patiend_id, log_dir in patients.items():
-    #     print(f'\n...STARTING PATIENT {patiend_id}...\n')
+    # for patient_id, log_dir in patients.items():
+    #     print(f'\n...STARTING PATIENT {patient_id}...\n')
     #     log = MachineLog(log_dir)
     #     log.prepare_dataframe()
-    #     log.prepare_deltaframe()
-        # log.delta_dependencies()
+    #     # log.prepare_deltaframe()
+    #     # log.delta_dependencies()
 
-    log = MachineLog(root_dir)
-    log.prepare_dataframe()
+    # log = MachineLog(root_dir)
+    # log.prepare_dataframe()
     # log.plot_beam_layers()
     # log.prepare_qa_dataframe()
-    log.prepare_deltaframe()
+    # log.prepare_deltaframe()
     # log.beam_histos()
     # log.delta_dependencies()
     # log.fractional_evolution(all=True)
