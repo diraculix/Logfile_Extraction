@@ -274,8 +274,8 @@ class MachineLog():
                 for layer_id in range(num_layers):
                     to_do_layers, to_do_tunings = [], []
                     no_exceptions = True
-                    for record_file in map_records:  # extraction of unpacked log-file data
-                        if int(record_file.split('_')[2].split('_')[0]) == layer_id:
+                    for rec_idx, record_file in enumerate(map_records):  # extraction of unpacked log-file data
+                        if int(record_file.split('_')[2]) == layer_id:
                             try:
                                 record_file_df = pd.read_csv(record_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
 
@@ -310,7 +310,7 @@ class MachineLog():
                                 
                                 for i, temp_record_file in enumerate(temp_record_files):
                                     if temp_record_file.__contains__('_temp_'):
-                                        map_records.insert(layer_id + (i+1), temp_record_file)
+                                        map_records.insert(rec_idx + (i+1), temp_record_file)
                                     
                                 continue  # move on to appended file in queue
                                         
@@ -386,8 +386,8 @@ class MachineLog():
                             to_do_layers.append(record_file_df)
                 
                     # same procedure for all tuning spots (max. 3 per layer possible)
-                    for tuning_file in tunings: 
-                        if int(tuning_file.split('_')[2].split('_')[0]) == layer_id:
+                    for tune_idx, tuning_file in enumerate(tunings): 
+                        if int(tuning_file.split('_')[2]) == layer_id:
                             try:
                                 tuning_file_df = pd.read_csv(tuning_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
                             except:
@@ -419,7 +419,7 @@ class MachineLog():
                                 
                                 for i, temp_tuning_file in enumerate(temp_tuning_files):
                                     if temp_tuning_file.__contains__('_temp_'):
-                                        tunings.insert(layer_id + (i+1), temp_tuning_file)
+                                        tunings.insert(tune_idx + (i+1), temp_tuning_file)
                                 
                                 continue
 
@@ -432,9 +432,10 @@ class MachineLog():
                                 tuning_file_df.drop(columns=['TIME'], inplace=True)
                                 try:
                                     tuning_file_df.drop(tuning_file_df[tuning_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)
-                                except:
-                                    pass
+                                except: pass
+                                    
                                 tuning_file_df = tuning_file_df[tuning_file_df.groupby('SUBMAP_NUMBER')['SUBMAP_NUMBER'].transform('count') > 1]
+                                
                             except KeyError:
                                 print(f'''\n  /!\ Key error occured while handling '{tuning_file}' (layer {str(layer_id).zfill(2)}), continuing..''')
                                 no_exceptions = False
@@ -497,6 +498,8 @@ class MachineLog():
                             to_do_layers[j]['SPOT_ID'] += (to_do_layers[j - 1]['SPOT_ID'].max() + 1)
                     
                     # concatenate layers, assign additional columns
+                    omitted_by_tuning = False
+
                     if len(to_do_layers) > 0:  # can be zero, if only one spot in layer and omitted by high-weighted tuning
                         layer_df = pd.concat(to_do_layers)
                         layer_df['LAYER_ID'] = layer_id
@@ -510,8 +513,8 @@ class MachineLog():
                         layer_df.drop(columns=['SUBMAP_NUMBER'], inplace=True)
                         layer_df = layer_df[~layer_df.index.duplicated(keep='first')]
                     else:
-                        print(f'  /!\ No record found for layer-ID {layer_id} in beam {beam_id}, continuing..')
-                        continue
+                        print(f'  /!\ No record for layer-ID {layer_id} in beam {beam_id}, only spot replaced by tuning')
+                        omitted_by_tuning = True
                     
                     if len(to_do_tunings) > 0:
                         tuning_df = pd.concat(to_do_tunings)
@@ -526,12 +529,14 @@ class MachineLog():
                         tuning_df.drop(columns=['SUBMAP_NUMBER'], inplace=True)
                         tuning_df = tuning_df[~tuning_df.index.duplicated(keep='first')]
                     else:
-                        print(f'  /!\ No tunings found for layer-ID {layer_id} and beam {beam_id}, continuing..')
+                        print(f'  /!\ No tunings found for layer-ID {layer_id} and beam {beam_id}, skipping this layer..')
                         continue
                     
                     del to_do_layers, to_do_tunings
                     
-                    finalized_layers.append(layer_df), finalized_tunings.append(tuning_df)
+                    if not omitted_by_tuning:
+                        finalized_layers.append(layer_df)
+                    finalized_tunings.append(tuning_df)
 
                     if no_exceptions:
                         char = '#'
@@ -554,7 +559,8 @@ class MachineLog():
                         os.remove(file)
 
                 # concatenate single layer dataframes
-                self.patient_record_df = pd.concat(finalized_layers, sort=True)
+                if not omitted_by_tuning:
+                    self.patient_record_df = pd.concat(finalized_layers, sort=True)
                 self.patient_tuning_df = pd.concat(finalized_tunings, sort=True)
                 os.chdir(self.logfile_dir)
 
@@ -2016,22 +2022,22 @@ class MachineLog():
 if __name__ == '__main__':
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBILTest01_1588055/Logfiles'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBIL001_671075/Logfiles'
-    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted\1230180'
     # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/'
     # root_dir = r'/home/luke/Logfile_Extraction/1588055/Logfiles'
     # root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
     # root_dir = r'/home/luke/Logfile_Extraction/converted'
-    root = Tk()
-    root_dir = filedialog.askdirectory()
-    root.destroy()
-    for i, patient_id in enumerate(os.listdir(root_dir)):
-        print(f'\n...STARTING PATIENT {patient_id} ({i + 1}/{len(os.listdir(root_dir))})...\n')
-        try: log = MachineLog(os.path.join(root_dir, patient_id))
-        except: 
-            print(f'__init__() failed for patient-ID {patient_id}, DS patient?')
-            continue
+    # root = Tk()
+    # root_dir = filedialog.askdirectory()
+    # root.destroy()
+    # for i, patient_id in enumerate(os.listdir(root_dir)):
+    #     print(f'\n...STARTING PATIENT {patient_id} ({i + 1}/{len(os.listdir(root_dir))})...\n')
+    #     try: log = MachineLog(os.path.join(root_dir, patient_id))
+    #     except: 
+    #         print(f'__init__() failed for patient-ID {patient_id}, DS patient?')
+    #         continue
 
-        log.prepare_dataframe()
+    #     log.prepare_dataframe()
     
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
@@ -2047,8 +2053,8 @@ if __name__ == '__main__':
     #     # log.prepare_deltaframe()
     #     # log.delta_dependencies()
 
-    # log = MachineLog(root_dir)
-    # log.prepare_dataframe()
+    log = MachineLog(root_dir)
+    log.prepare_dataframe()
     # log.plot_beam_layers()
     # log.prepare_qa_dataframe()
     # log.prepare_deltaframe()
