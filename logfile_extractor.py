@@ -332,6 +332,11 @@ class MachineLog():
                                 layer_exceptions.append(layer_id)
                                 continue
                             
+                            if record_file_df.empty:  # in case of split low-populated record file
+                                no_exceptions = False
+                                layer_exceptions.append(layer_id)
+                                continue
+
                             # submap number: running index of table --> enables filtering of actual irradiations
                             current_spot_submap = record_file_df['SUBMAP_NUMBER'].min()
                             current_spot_id = 0
@@ -343,7 +348,7 @@ class MachineLog():
                                 record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['SPOT_ID']] = current_spot_id  # assign new column
                                 spot_drill_time = len(record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap]) * 0.25  # in [ms]
                                 record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DRILL_TIME(ms)']] = spot_drill_time  # assign new column for drill time
-                                accumulated_charge = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DOSE_PRIM(C)']].abs().sum().mean()
+                                accumulated_charge = record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (record_file_df['DOSE_PRIM(C)'] != -10000.0), ['DOSE_PRIM(C)']].abs().sum().iloc[0]
                                 record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['CHARGE(C)']] = accumulated_charge  # accumulate charge released per spot
 
                                 current_spot_submap = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] > current_spot_submap]['SUBMAP_NUMBER'].min()  # proceed to next submap
@@ -2032,12 +2037,12 @@ if __name__ == '__main__':
     # root.destroy()
     # for i, patient_id in enumerate(os.listdir(root_dir)):
     #     print(f'\n...STARTING PATIENT {patient_id} ({i + 1}/{len(os.listdir(root_dir))})...\n')
-    #     try: log = MachineLog(os.path.join(root_dir, patient_id))
-    #     except: 
-    #         print(f'__init__() failed for patient-ID {patient_id}, DS patient?')
-    #         continue
+        # try: log = MachineLog(os.path.join(root_dir, patient_id))
+        # except: 
+        #     print(f'__init__() failed for patient-ID {patient_id}, DS patient?')
+        #     continue
 
-    #     log.prepare_dataframe()
+        # log.prepare_dataframe()
     
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
