@@ -1870,21 +1870,30 @@ class MachineLog():
                 
 
     def fractional_evolution(self, all=False):
+        # bs_file = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\cct_entities.csv'
+        # bs_data = pd.read_csv(bs_file, index_col='PATIENT_ID')
+        # bs_dict = bs_data.to_dict()
+        # bodysites = bs_data['BODY_SITE'].drop_duplicates().to_list()  # to be continued
+
         other_records = []
         for file in sorted(os.listdir(self.df_destination)):
             if file.__contains__('records') and file.endswith('.csv') and not file.__contains__('qa'):
                 other_records.append(os.path.join(self.df_destination, file))
 
-        fig = plt.figure(figsize=(10, 4))
+        fig = plt.figure(1, figsize=(10, 4))
+        global_dist_means = []
         for n, record_file in enumerate(other_records):
             if not all:
-                print(f'\nStarting record dataframe {record_file}..')
+                print(f'Starting record dataframe {record_file}..')
                 this_record_df = self.patient_record_df
             else:
-                print(f'\nStarting record dataframe ({n + 1}/{len(other_records)}) {record_file}..')
-                this_record_df = pd.read_csv(record_file, index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})          
+                print(f'Starting record dataframe ({n + 1}/{len(other_records)}) {record_file}..')
+                this_record_df = pd.read_csv(record_file, index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})         
             
             beam_list = this_record_df['BEAM_ID'].drop_duplicates()
+            patient_id = this_record_df['PATIENT_ID'].iloc[0]
+            # if patient_id != 1617814: continue
+            # bodysite = bs_dict[patient_id]
             for beam_id in beam_list:
                 print(f'  Processing beam-ID {beam_id}..')
                 beam_df = this_record_df.loc[this_record_df['BEAM_ID'] == beam_id]
@@ -1895,7 +1904,7 @@ class MachineLog():
                     ref_df_copy = ref_df.copy()
                     fx_df = beam_df.loc[beam_df['FRACTION_ID'] == fx_id]
                     while len(fx_df) != len(ref_df_copy):
-                        print(f'    Correcting fx-ID {fx_id}')
+                        # print(f'    Correcting fx-ID {fx_id}', end='\r')
                         dropped = False
                         for index, pair in enumerate(zip(fx_df['X_POSITION(mm)'], ref_df_copy['X_POSITION(mm)'])):
                             if abs(pair[0] - pair[1]) > 2:  # mm difference
@@ -1915,36 +1924,61 @@ class MachineLog():
                                 ref_df_copy = ref_df_copy.loc[:ref_df_copy.index[len(fx_df) - 1]]
 
                     date = pd.to_datetime(fx_df.index[0]).date()
-                    try:
-                        dx = fx_df['X_POSITION(mm)'].to_numpy() - ref_df_copy['X_POSITION(mm)'].to_numpy()
-                        dy = fx_df['Y_POSITION(mm)'].to_numpy() - ref_df_copy['Y_POSITION(mm)'].to_numpy()
-                        shift_vectors = [np.array(tup) for tup in zip(dx, dy)]
-                        fx_dist_means.append(np.linalg.norm(sum(shift_vectors) / len(shift_vectors))), date_axis.append(date)
-                    except:
-                        print('help')                
+                    dx = fx_df['X_POSITION(mm)'].to_numpy() - ref_df_copy['X_POSITION(mm)'].to_numpy()
+                    dy = fx_df['Y_POSITION(mm)'].to_numpy() - ref_df_copy['Y_POSITION(mm)'].to_numpy()
+                    shift_vectors = [np.array(tup) for tup in zip(dx, dy)]
+                    mean_dist = np.linalg.norm(sum(shift_vectors) / len(shift_vectors))
+                    if mean_dist > 10:
+                        print('/x\\', mean_dist, patient_id, fx_id, beam_id)
+                        # shifts = [np.linalg.norm(shift) for shift in shift_vectors]
+                        # max_shift = max(shifts)
+                        # max_index = shifts.index(max_shift)
+                        # display = ref_df['LAYER_ID'].iloc[max_index]
+                        # plt.scatter(ref_df.loc[ref_df['LAYER_ID'] == display, ['X_POSITION(mm)']], ref_df.loc[ref_df['LAYER_ID'] == display, ['Y_POSITION(mm)']], marker='o', edgecolors='black', facecolors='white', label=f'{beam_fxs.iloc[0]} (first)', zorder=5)
+                        # plt.scatter(fx_df.loc[fx_df['LAYER_ID'] == display, ['X_POSITION(mm)']], fx_df.loc[fx_df['LAYER_ID'] == display, ['Y_POSITION(mm)']], marker='o', label=f'{fx_id} (this)', c='red')
+                        # plt.scatter(beam_df.loc[(beam_df['LAYER_ID'] == display) & (beam_df['FRACTION_ID'] != fx_id), ['X_POSITION(mm)']], beam_df.loc[(beam_df['LAYER_ID'] == display) & (beam_df['FRACTION_ID'] != fx_id), ['Y_POSITION(mm)']], marker='o', alpha=0.3, label=f'remaining', c='tab:blue', zorder=-5)
+                        # plt.title(f'Pat. {patient_id}, Beam {beam_id}, (showing Layer-iD {display}/{fx_df["TOTAL_LAYERS"].iloc[0]})\nEntire field mean pos. $\Delta$ = {mean_dist:.3f}')
+                        # plt.legend()
+                        # plt.show()
+                        # plt.clf()
+                        continue
+
+                    fx_dist_means.append(mean_dist), date_axis.append(date)
+                    if all: global_dist_means.append(mean_dist)
 
                 if not all:
                     plt.errorbar(x=sorted(date_axis), y=fx_dist_means, yerr=None, fmt='o-', capsize=3, label=beam_id)
                 else:
-                    plt.errorbar(x=date_axis, y=fx_dist_means, yerr=None, fmt='o', capsize=3,  color='black', markersize=2, label=beam_id)
+                    plt.errorbar(x=date_axis, y=fx_dist_means, yerr=None, fmt='o', capsize=3,  color='black', alpha=0.3, markersize=2)
+                    pass
 
             if not all:
-                break            
+                break    
+
+            print(f'\n>> FINISHED', n + 1, 'of', len(other_records), 'datasets <<\n')        
+        
+        passed, passmark = 0, 0.5
+        for dist in global_dist_means:
+            if dist < passmark:
+                passed += 1
+        
+        percentage = passed / len(global_dist_means) * 10
         
         plt.xlabel('Date [YYYY-MM-DD]')
-        plt.ylabel('Mean distance to reference [mm]')
-        plt.ylim(0.0, 0.5)
+        plt.ylabel('Mean field $\Delta$ to Fx-01 [mm]')
+        plt.ylim(0.0, 4.0)
         plt.grid(axis='y')
         if not all:
-            plt.title(f'Delivery fluctuation of spot position (pat.-ID {self.patient_id})', fontweight='bold')
+            plt.title(f'Delivery variance in spot position (pat.-ID {self.patient_id})', fontweight='bold')
             plt.legend(title='Beam-ID')
             plt.tight_layout()
             plt.savefig(f'{output_dir}/{self.patient_id}_fractional_fluctuation.png', dpi=1000)
         else:
-            plt.title('Delivery fluctuation of spot position (all test patients)', fontweight='bold')
+            plt.title(f'Delivery variance in spot position | N={len(other_records)} patients, 04/2020 - present', fontweight='bold')
+            plt.legend(title=f'{round(percentage, 3)}% of fields within $\pm${passmark}mm')
             plt.tight_layout()
             plt.savefig(f'{output_dir}/full_fractional_fluctuation.png', dpi=1000)
-        # plt.show()    
+        plt.show()    
     
 
     def beam_histos(self):
@@ -2025,13 +2059,13 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBILTest01_1588055/Logfiles'
-    # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/MOBIL001_671075/Logfiles'
-    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted\1230180'
-    # root_dir = 'N:/fs4-HPRT/HPRT-Data/ONGOING_PROJECTS/4D-PBS-LogFileBasedRecalc/Patient_dose_reconstruction/'
-    # root_dir = r'/home/luke/Logfile_Extraction/1588055/Logfiles'
-    # root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
-    # root_dir = r'/home/luke/Logfile_Extraction/converted'
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted\1637311'
+    # erroneous = [1230180, 1625909, 1627648, 1660835, 1698000, 1700535]
+    # for errid in erroneous:
+    #     dir = os.path.join(root_dir, str(errid))
+    #     log = MachineLog(dir)
+    #     log.prepare_dataframe()
+
     # root = Tk()
     # root_dir = filedialog.askdirectory()
     # root.destroy()
@@ -2059,13 +2093,25 @@ if __name__ == '__main__':
     #     # log.delta_dependencies()
 
     log = MachineLog(root_dir)
-    log.prepare_dataframe()
+    # df = log.patient_record_df
+    # for fx in log.fraction_list:
+    #     control = df.loc[(df['FRACTION_ID'] == fx) & (df['BEAM_ID'] == '2')]
+    #     print(fx, control['LAYER_ID'].max())
+    # df1 = df.loc[(df['FRACTION_ID'] == log.fraction_list[0]) & (df['BEAM_ID'] == '2')]
+    # df2 = df.loc[(df['FRACTION_ID'] == '20200723') & (df['BEAM_ID'] == '2')]
+    # for lid in range(50):
+    #     dfslice1, dfslice2 = df1.loc[(df['LAYER_ID'] == lid)], df2.loc[(df['LAYER_ID'] == lid)]
+    #     plt.scatter(dfslice1['X_POSITION(mm)'], dfslice1['Y_POSITION(mm)'], alpha=0.5)
+    #     plt.scatter(dfslice2['X_POSITION(mm)'], dfslice2['Y_POSITION(mm)'], alpha=0.5)
+    #     plt.show()
+
+    # log.prepare_dataframe()
     # log.plot_beam_layers()
     # log.prepare_qa_dataframe()
     # log.prepare_deltaframe()
     # log.beam_histos()
     # log.delta_dependencies()
-    # log.fractional_evolution(all=True)
+    log.fractional_evolution(all=True)
     # log.delta_correlation_matrix(gtr_only=False)
     pass
 
