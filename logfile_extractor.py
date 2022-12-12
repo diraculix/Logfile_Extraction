@@ -1421,22 +1421,22 @@ class MachineLog():
                 to_concat.append(this_joint_df)
         
         joint_df = pd.concat(to_concat, ignore_index=True)
-        # corr_matrix = joint_df.corr(method='pearson')
-        # fig, ax = plt.subplots(1, 1, figsize=(16, 10))
-        # sns.heatmap(corr_matrix, annot=True, cmap='icefire', vmin=-1.0, vmax=1.0)
-        # plt.tight_layout()
-        # plt.savefig(f'{output_dir}/{self.patient_id}_correlation_matrix.png', dpi=150)
-        # plt.clf()
+        corr_matrix = joint_df.corr(method='pearson')  # method='spearman'?
+        fig, ax = plt.subplots(1, 1, figsize=(16, 10))
+        sns.heatmap(corr_matrix, annot=True, cmap='icefire', vmin=-1.0, vmax=1.0)
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/N={len(other_records)}_correlation_matrix.png', dpi=150)
+        plt.clf()
         # fig, ax = plt.subplots(1, 1, figsize=(15, 15))
         # sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'DELTA_MU', 'MU', 'LAYER_ENERGY(MeV)'], hue='GANTRY_ANGLE')
-        try:
-            g = sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'LAYER_ENERGY(MeV)', 'MU', 'GANTRY_ANGLE'], plot_kws=dict(s=10, edgecolor=None, alpha=0.3), corner=True)      
-        except:
-            g = sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'LAYER_ENERGY(MeV)', 'MU', 'GANTRY_ANGLE'], plot_kws=dict(s=10, edgecolor=None, alpha=0.3))      
-        # g._legend.remove()
-        plt.legend(bbox_to_anchor=(1, 1))
-        plt.tight_layout()
-        plt.savefig(f'{output_dir}/{self.patient_id}_pairplot.png', dpi=1000)
+        # try:
+        #     g = sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'LAYER_ENERGY(MeV)', 'MU', 'GANTRY_ANGLE'], plot_kws=dict(s=10, edgecolor=None, alpha=0.3), corner=True)      
+        # except:
+        #     g = sns.pairplot(joint_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'LAYER_ENERGY(MeV)', 'MU', 'GANTRY_ANGLE'], plot_kws=dict(s=10, edgecolor=None, alpha=0.3))      
+        # # g._legend.remove()
+        # plt.legend(bbox_to_anchor=(1, 1))
+        # plt.tight_layout()
+        # plt.savefig(f'{output_dir}/{self.patient_id}_pairplot.png', dpi=1000)
 
 
     def delta_dependencies(self):
@@ -1880,7 +1880,7 @@ class MachineLog():
             if file.__contains__('records') and file.endswith('.csv') and not file.__contains__('qa'):
                 other_records.append(os.path.join(self.df_destination, file))
 
-        fig = plt.figure(1, figsize=(10, 4))
+        # fig = plt.figure(1, figsize=(10, 4))
         global_dist_means = []
         for n, record_file in enumerate(other_records):
             if not all:
@@ -1928,28 +1928,29 @@ class MachineLog():
                     dy = fx_df['Y_POSITION(mm)'].to_numpy() - ref_df_copy['Y_POSITION(mm)'].to_numpy()
                     shift_vectors = [np.array(tup) for tup in zip(dx, dy)]
                     mean_dist = np.linalg.norm(sum(shift_vectors) / len(shift_vectors))
-                    if mean_dist > 10:
+                    if mean_dist > 3:
                         print('/x\\', mean_dist, patient_id, fx_id, beam_id)
-                        # shifts = [np.linalg.norm(shift) for shift in shift_vectors]
-                        # max_shift = max(shifts)
-                        # max_index = shifts.index(max_shift)
-                        # display = ref_df['LAYER_ID'].iloc[max_index]
-                        # plt.scatter(ref_df.loc[ref_df['LAYER_ID'] == display, ['X_POSITION(mm)']], ref_df.loc[ref_df['LAYER_ID'] == display, ['Y_POSITION(mm)']], marker='o', edgecolors='black', facecolors='white', label=f'{beam_fxs.iloc[0]} (first)', zorder=5)
-                        # plt.scatter(fx_df.loc[fx_df['LAYER_ID'] == display, ['X_POSITION(mm)']], fx_df.loc[fx_df['LAYER_ID'] == display, ['Y_POSITION(mm)']], marker='o', label=f'{fx_id} (this)', c='red')
-                        # plt.scatter(beam_df.loc[(beam_df['LAYER_ID'] == display) & (beam_df['FRACTION_ID'] != fx_id), ['X_POSITION(mm)']], beam_df.loc[(beam_df['LAYER_ID'] == display) & (beam_df['FRACTION_ID'] != fx_id), ['Y_POSITION(mm)']], marker='o', alpha=0.3, label=f'remaining', c='tab:blue', zorder=-5)
-                        # plt.title(f'Pat. {patient_id}, Beam {beam_id}, (showing Layer-iD {display}/{fx_df["TOTAL_LAYERS"].iloc[0]})\nEntire field mean pos. $\Delta$ = {mean_dist:.3f}')
-                        # plt.legend()
+                        shifts = [np.linalg.norm(shift) for shift in shift_vectors]
+                        max_shift = max(shifts)
+                        max_index = shifts.index(max_shift)
+                        display = ref_df['LAYER_ID'].iloc[max_index]
+                        plt.scatter(ref_df.loc[ref_df['LAYER_ID'] == display, ['X_POSITION(mm)']], ref_df.loc[ref_df['LAYER_ID'] == display, ['Y_POSITION(mm)']], marker='o', edgecolors='black', facecolors='white', label=f'{beam_fxs.iloc[0]} (first)', zorder=5)
+                        plt.scatter(fx_df.loc[fx_df['LAYER_ID'] == display, ['X_POSITION(mm)']], fx_df.loc[fx_df['LAYER_ID'] == display, ['Y_POSITION(mm)']], marker='o', label=f'{fx_id} (this)', c='red')
+                        plt.scatter(beam_df.loc[(beam_df['LAYER_ID'] == display) & (beam_df['FRACTION_ID'] != fx_id), ['X_POSITION(mm)']], beam_df.loc[(beam_df['LAYER_ID'] == display) & (beam_df['FRACTION_ID'] != fx_id), ['Y_POSITION(mm)']], marker='o', alpha=0.3, label=f'remaining', c='tab:blue', zorder=-5)
+                        plt.title(f'Pat. {patient_id}, Beam {beam_id}, (showing Layer-iD {display}/{fx_df["TOTAL_LAYERS"].iloc[0]})\nEntire field mean pos. $\Delta$ = {mean_dist:.3f}')
+                        plt.legend()
+                        plt.savefig(f'{output_dir}/{patient_id}_{fx_id}_{beam_id}_failure.png', dpi=300)
                         # plt.show()
-                        # plt.clf()
+                        plt.clf()
                         continue
 
                     fx_dist_means.append(mean_dist), date_axis.append(date)
-                    if all: global_dist_means.append(mean_dist)
+                    global_dist_means.append(mean_dist)
 
                 if not all:
                     plt.errorbar(x=sorted(date_axis), y=fx_dist_means, yerr=None, fmt='o-', capsize=3, label=beam_id)
                 else:
-                    plt.errorbar(x=date_axis, y=fx_dist_means, yerr=None, fmt='o', capsize=3,  color='black', alpha=0.3, markersize=2)
+                    # plt.errorbar(x=date_axis, y=fx_dist_means, yerr=None, fmt='o', capsize=3,  color='black', alpha=0.3, markersize=4)
                     pass
 
             if not all:
@@ -1962,20 +1963,20 @@ class MachineLog():
             if dist < passmark:
                 passed += 1
         
-        percentage = passed / len(global_dist_means) * 10
+        percentage = passed / len(global_dist_means) * 100
         
         plt.xlabel('Date [YYYY-MM-DD]')
         plt.ylabel('Mean field $\Delta$ to Fx-01 [mm]')
-        plt.ylim(0.0, 4.0)
+        plt.ylim(0.0, 0.5)
         plt.grid(axis='y')
         if not all:
-            plt.title(f'Delivery variance in spot position (pat.-ID {self.patient_id})', fontweight='bold')
+            plt.title(f'Delivery variance in recorded spot position (pat.-ID {self.patient_id})', fontweight='bold')
             plt.legend(title='Beam-ID')
             plt.tight_layout()
             plt.savefig(f'{output_dir}/{self.patient_id}_fractional_fluctuation.png', dpi=1000)
         else:
-            plt.title(f'Delivery variance in spot position | N={len(other_records)} patients, 04/2020 - present', fontweight='bold')
-            plt.legend(title=f'{round(percentage, 3)}% of fields within $\pm${passmark}mm')
+            # plt.title(f'Delivery variance in recorded spot position | N={len(other_records)} patients, 04/2020 - present', fontweight='bold')
+            plt.legend(title=f'{round(percentage, 2)}% of fields within $\pm${passmark}mm')
             plt.tight_layout()
             plt.savefig(f'{output_dir}/full_fractional_fluctuation.png', dpi=1000)
         plt.show()    
@@ -2059,7 +2060,8 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted\1637311'
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted\1230180'
+    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest06_1676348\Logfiles'
     # erroneous = [1230180, 1625909, 1627648, 1660835, 1698000, 1700535]
     # for errid in erroneous:
     #     dir = os.path.join(root_dir, str(errid))
@@ -2069,14 +2071,15 @@ if __name__ == '__main__':
     # root = Tk()
     # root_dir = filedialog.askdirectory()
     # root.destroy()
+    # import time
     # for i, patient_id in enumerate(os.listdir(root_dir)):
     #     print(f'\n...STARTING PATIENT {patient_id} ({i + 1}/{len(os.listdir(root_dir))})...\n')
-        # try: log = MachineLog(os.path.join(root_dir, patient_id))
-        # except: 
-        #     print(f'__init__() failed for patient-ID {patient_id}, DS patient?')
-        #     continue
+    #     try: log = MachineLog(os.path.join(root_dir, patient_id))
+    #     except: 
+    #         print(f'__init__() failed for patient-ID {patient_id}, DS patient?')
+    #         continue
 
-        # log.prepare_dataframe()
+    #     log.prepare_dataframe()
     
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
@@ -2093,6 +2096,7 @@ if __name__ == '__main__':
     #     # log.delta_dependencies()
 
     log = MachineLog(root_dir)
+    # log.plan_creator(fraction='all', mode='all')
     # df = log.patient_record_df
     # for fx in log.fraction_list:
     #     control = df.loc[(df['FRACTION_ID'] == fx) & (df['BEAM_ID'] == '2')]
