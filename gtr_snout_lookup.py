@@ -69,7 +69,7 @@ with open(beam_config_old, 'r') as beam_config_old:  # draw machine parameters f
     sine_x = fit_sin(qa_angles, qa_median_x)
     sine_y = fit_sin(qa_angles, qa_median_y)
 
-    fig, axs = plt.subplots(5, 2, figsize=(10, 10), sharex=True, sharey=True)
+    fig, axs = plt.subplots(5, 2, figsize=(8, 8), sharex=True, sharey=True)
     ax0 = fig.add_subplot(111, frameon=False)
     ax0.set_xticks([]), ax0.set_yticks([])
     fig.subplots_adjust(hspace=0.15, wspace=0.05, top=0.9)
@@ -77,8 +77,6 @@ with open(beam_config_old, 'r') as beam_config_old:  # draw machine parameters f
     gantries = [0,30,60,90,120,150,180,210,240,270,300,330,360]
 
     for i, s in enumerate(snouts):
-        axs[i, 0].scatter(qa_angles, qa_median_x, edgecolors='black', c='white', zorder=3)
-        axs[i, 0].plot(gantry_axis, sine_x(gantry_axis), color='black', zorder=2)
         axs[i, 0].annotate(f'Snout {s} mm', xy=(5, 0.75),fontstyle='italic')
 
         if s != 300.:
@@ -87,6 +85,8 @@ with open(beam_config_old, 'r') as beam_config_old:  # draw machine parameters f
             axs[i, 1].plot(gantries, iso_disp_y_cubic(s, gantries), 'v', linestyle='None', c='tab:grey', markerfacecolor='white', zorder=1)
             axs[i, 1].plot(gantry_axis, iso_disp_y_cubic(s, gantry_axis), c='tab:grey', linestyle=':', zorder=0)
         else:
+            axs[i, 0].scatter(qa_angles, qa_median_x, edgecolors='black', c='white', zorder=3)
+            axs[i, 0].plot(gantry_axis, sine_x(gantry_axis), color='black', zorder=2)
             axs[i, 0].plot(gantries, [0 for _ in gantries], 'v', linestyle='None', c='tab:grey', markerfacecolor='white')
             axs[i, 0].plot(gantry_axis, [0 for _ in gantry_axis], c='tab:grey', linestyle=':')
             axs[i, 1].plot(gantries, [0 for _ in gantries], 'v', linestyle='None', c='tab:grey', markerfacecolor='white' ,zorder=1)
@@ -108,8 +108,6 @@ with open(beam_config_old, 'r') as beam_config_old:  # draw machine parameters f
         iso_disp_y_cubic = interpolate.interp2d(columns, rows, iso_disp_y, kind='cubic')
 
         for i, s in enumerate(snouts):
-            axs[i, 1].scatter(qa_angles, qa_median_y, edgecolors='black', c='white', zorder=3)
-            axs[i, 1].plot(gantry_axis, sine_y(gantry_axis), color='black', zorder=2)
 
             if s != 300.:
                 axs[i, 0].plot(gantries, iso_disp_x_cubic(s, gantries), '^', linestyle='None', c='tab:grey', markerfacecolor='white')
@@ -117,6 +115,8 @@ with open(beam_config_old, 'r') as beam_config_old:  # draw machine parameters f
                 axs[i, 1].plot(gantries, iso_disp_y_cubic(s, gantries), '^', linestyle='None', c='tab:grey', markerfacecolor='white', zorder=1)
                 axs[i, 1].plot(gantry_axis, iso_disp_y_cubic(s, gantry_axis), c='tab:grey', linestyle='--', zorder=0)
             else:
+                axs[i, 1].scatter(qa_angles, qa_median_y, edgecolors='black', c='white', zorder=3)
+                axs[i, 1].plot(gantry_axis, sine_y(gantry_axis), color='black', zorder=2)
                 axs[i, 0].plot(gantries, [0 for _ in gantries], '^', linestyle='None', c='tab:grey', markerfacecolor='white')
                 axs[i, 0].plot(gantry_axis, [0 for _ in gantry_axis], c='tab:grey', linestyle='--')
                 axs[i, 1].plot(gantries, [0 for _ in gantries], '^', linestyle='None', c='tab:grey', markerfacecolor='white', zorder=1)
@@ -138,8 +138,8 @@ with open(beam_config_old, 'r') as beam_config_old:  # draw machine parameters f
 
     ax0.legend(handles=legend, loc='upper center', bbox_to_anchor=(0.5, 1.07))
     plt.setp(axs, ylim=(-1, 1), xlim=(0, 360))
-    plt.suptitle('Look-up table for isocenter displacement', fontweight='bold')
+    # plt.suptitle('Look-up table for isocenter displacement', fontweight='bold')
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/lookup_vs_sine.png', dpi=600)
+    plt.savefig(f'{output_dir}/lookup_vs_sine.png', dpi=300)
 
     beam_config_old.close()
