@@ -175,12 +175,38 @@ def correct_gtr(qa_df):
     plt.tight_layout()
     plt.savefig(f'{output_dir}/QA_gantry_sine_fit.png', dpi=300)
     plt.show()
-      
+
+def missing_beams(qa_df):
+    qa_energies = [100., 140., 165., 185., 205., 226.7]
+    qa_angles = np.linspace(0., 360., 8, endpoint=False)
+    fx_list = qa_df.FRACTION_ID.drop_duplicates()
+
+    for fx in fx_list:
+        fx_df = qa_df.loc[qa_df['FRACTION_ID'] == fx]
+        missing_energies = []
+        print(fx)
+        for energy in qa_energies:
+            energy_df = fx_df.loc[fx_df['LAYER_ENERGY(MeV)'] == energy]
+            if energy_df.empty:
+                missing_energies.append(energy)
+                continue
+           
+            print('\t', energy) 
+            angles, missing_angles = energy_df['GANTRY_ANGLE'].drop_duplicates().to_list(), []
+            for gantry in qa_angles:
+                if not gantry in angles:
+                    missing_angles.append(gantry)
+
+            print('\t\t', 'Missing angles:', missing_angles)
+        
+        print('\t', 'Missing energies:', missing_energies)  
+                  
 
 if __name__ == '__main__':
     qa_dataframe = pd.read_csv('QA_2017-2022_records_data.csv', dtype={'BEAM_ID':str, 'FRACTION_ID':int})
     # qa_dataframe = qa_dataframe.loc[qa_dataframe['FRACTION_ID'] > 20220000]
     # print(qa_dataframe.FRACTION_ID.drop_duplicates())
     print('Read dataframe .. DONE')
-    plot_qa_beams(qa_dataframe)
+    # plot_qa_beams(qa_dataframe)
     # correct_gtr(qa_dataframe)
+    missing_beams(qa_dataframe)
