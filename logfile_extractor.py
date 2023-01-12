@@ -88,8 +88,8 @@ class MachineLog():
                     valid_dir = True
         
         # set dataframe storage directory, fallback alternative below
-        self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
-        # self.df_destination = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\extracted'
+        # self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
+        self.df_destination = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\extracted'
         if not os.path.isdir(os.path.join(self.df_destination, '..')):            
             self.df_destination = r'/home/luke/Logfile_Extraction/dataframes'
         
@@ -166,7 +166,7 @@ class MachineLog():
 
     '''
     Main data extraction method:
-    Requires:   Initialized valid log-file directory
+    Requires:   Initialized, valid log-file directory
     Arguments:  None
     Operation:  Loop over fraction directories, collect relevant beam data in pandas dataframe, write to .csv
     Returns:    None
@@ -345,17 +345,24 @@ class MachineLog():
 
                             # sweep over all spots in layer, SUBMAP_NUMBER is locked whenever a spot is active
                             while current_spot_submap <= record_file_df['SUBMAP_NUMBER'].max():
+                                submap_df = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap]
                                 record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['SPOT_ID']] = current_spot_id  # assign new column
-                                spot_drill_time = len(record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap]) * 0.25  # in [ms]
+                                spot_drill_time = len(submap_df) * 0.25  # in [ms]
                                 record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DRILL_TIME(ms)']] = spot_drill_time  # assign new column for drill time
-                                accumulated_charge = record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (record_file_df['DOSE_PRIM(C)'] != -10000.0), ['DOSE_PRIM(C)']].abs().sum().iloc[0]
+                                accumulated_charge = submap_df.loc[submap_df['DOSE_PRIM(C)'] != -10000.0, ['DOSE_PRIM(C)']].abs().sum().iloc[0]
                                 record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['CHARGE(C)']] = accumulated_charge  # accumulate charge released per spot
+                                
+                                # average over all spot entries for most accurate position/shape (recommended by IBA)
+                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POS_IC23(mm)']] = submap_df['X_POSITION(mm)'].mean()
+                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POS_IC23(mm)']] = submap_df['Y_POSITION(mm)'].mean()
+                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_WID_IC23(mm)']] = submap_df['X_WIDTH(mm)'].mean()
+                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_WID_IC23(mm)']] = submap_df['Y_WIDTH(mm)'].mean()
 
                                 current_spot_submap = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] > current_spot_submap]['SUBMAP_NUMBER'].min()  # proceed to next submap
                                 current_spot_id += 1  # keep track of spot id
 
                             record_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
-                            record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entries for each spot (most accurate)
+                            record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entry for each spot
                             record_file_df = record_file_df.loc[(record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0)]  # drop unusable rows
                             
                             # draw machine parameters from *map_specif*.csv
@@ -374,8 +381,8 @@ class MachineLog():
                             record_file_df['LAYER_ENERGY(MeV)'] = layer_energy  # set new column
 
                             # coordinate system transform IBA <-> RayStation/ISO (x <-> y)
-                            record_file_df['X_POS_IC23(mm)'], record_file_df['Y_POS_IC23(mm)'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
-                            record_file_df['X_WID_IC23(mm)'], record_file_df['Y_WID_IC23(mm)'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
+                            # record_file_df['X_POS_IC23(mm)'], record_file_df['Y_POS_IC23(mm)'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
+                            # record_file_df['X_WID_IC23(mm)'], record_file_df['Y_WID_IC23(mm)'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
                             record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
                             record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
                             record_file_df['X_POSITION_CORR(mm)'] = record_file_df['X_POSITION(mm)'] - correct_x(gantry_angle)  # if correction data is present (experimental)
@@ -457,11 +464,17 @@ class MachineLog():
                             tuning_file_df['SPOT_ID'] = 0
                             tuning_file_df.reindex()
                             while current_spot_submap <= tuning_file_df['SUBMAP_NUMBER'].max():
+                                submap_df = tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap]
                                 tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['SPOT_ID']] = current_spot_id
-                                spot_drill_time = len(tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap]) * 0.25
+                                spot_drill_time = len(submap_df) * 0.25
                                 tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DRILL_TIME(ms)']] = spot_drill_time
-                                accumulated_charge = tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DOSE_PRIM(C)']].abs().sum().mean()
+                                accumulated_charge = submap_df.loc[submap_df['DOSE_PRIM(C)'] != -10000.0, ['DOSE_PRIM(C)']].abs().sum().iloc[0]
                                 tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['CHARGE(C)']] = accumulated_charge
+
+                                tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POS_IC23(mm)']] = submap_df['X_POSITION(mm)'].mean()
+                                tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POS_IC23(mm)']] = submap_df['Y_POSITION(mm)'].mean()
+                                tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_WID_IC23(mm)']] = submap_df['X_WIDTH(mm)'].mean()
+                                tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_WID_IC23(mm)']] = submap_df['Y_WIDTH(mm)'].mean()
 
                                 current_spot_submap = tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] > current_spot_submap]['SUBMAP_NUMBER'].min()
                                 current_spot_id += 1
@@ -483,8 +496,8 @@ class MachineLog():
                             layer_energy = np.exp(np.polyval(iba_gtr2_poly, np.log(range_at_iso)))  # [MeV]
                             tuning_file_df['LAYER_ENERGY(MeV)'] = layer_energy
 
-                            tuning_file_df['X_POS_IC23(mm)'], tuning_file_df['Y_POS_IC23(mm)'] = tuning_file_df['X_POSITION(mm)'], tuning_file_df['Y_POSITION(mm)']
-                            tuning_file_df['X_WID_IC23(mm)'], tuning_file_df['Y_WID_IC23(mm)'] = tuning_file_df['X_WIDTH(mm)'], tuning_file_df['Y_WIDTH(mm)']
+                            # tuning_file_df['X_POS_IC23(mm)'], tuning_file_df['Y_POS_IC23(mm)'] = tuning_file_df['X_POSITION(mm)'], tuning_file_df['Y_POSITION(mm)']
+                            # tuning_file_df['X_WID_IC23(mm)'], tuning_file_df['Y_WID_IC23(mm)'] = tuning_file_df['X_WIDTH(mm)'], tuning_file_df['Y_WIDTH(mm)']
                             tuning_file_df['X_POSITION(mm)'] = tuning_file_df[['Y_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
                             tuning_file_df['Y_POSITION(mm)'] = tuning_file_df[['X_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
                             tuning_file_df['X_WIDTH(mm)'] = tuning_file_df[['Y_WID_IC23(mm)']].apply(map_spot_width, args=(sad_x, ictoiso_x))
@@ -724,8 +737,16 @@ class MachineLog():
                                 layer_exceptions.append(layer_id)
                                 continue
                             
-                            record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entries for each spot (most accurate)
                             record_file_df = record_file_df.loc[(record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0)]  # drop redundant rows
+                            for submap in record_file_df['SUBMAP_NUMBER'].drop_duplicates():
+                                submap_df = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap]
+                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap, ['X_POS_IC23(mm)']] = submap_df['X_POSITION(mm)'].mean()
+                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap, ['Y_POS_IC23(mm)']] = submap_df['Y_POSITION(mm)'].mean()
+                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap, ['X_WID_IC23(mm)']] = submap_df['X_WIDTH(mm)'].mean()
+                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap, ['Y_WID_IC23(mm)']] = submap_df['Y_WIDTH(mm)'].mean()
+
+                            record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entries for each spot (most accurate)
+                            
 
                             if not len(record_file_df[['X_POSITION(mm)', 'Y_POSITION(mm)']].drop_duplicates()) in qa_spots:
                                 continue
@@ -749,8 +770,8 @@ class MachineLog():
                             
                             # coordinate system transform iba <-> raystation (x <-> y)
                             record_file_df.drop_duplicates(subset=['X_POSITION(mm)', 'Y_POSITION(mm)'], inplace=True)
-                            record_file_df['X_POS_IC23(mm)'], record_file_df['Y_POS_IC23(mm)'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
-                            record_file_df['X_WID_IC23(mm)'], record_file_df['Y_WID_IC23(mm)'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
+                            # record_file_df['X_POS_IC23(mm)'], record_file_df['Y_POS_IC23(mm)'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
+                            # record_file_df['X_WID_IC23(mm)'], record_file_df['Y_WID_IC23(mm)'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
                             record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
                             record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
                             record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID_IC23(mm)']].apply(map_spot_width, args=(sad_x, ictoiso_x))
@@ -1878,13 +1899,13 @@ class MachineLog():
         gcf_update = pd.to_datetime('20200510').date()
         ic1_change = pd.to_datetime('20200713').date()
 
-        other_records, ponaqua_dfs = [], r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\extracted'
+        other_records, mobil_dfs = [], r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
         for file in sorted(os.listdir(self.df_destination)):
             if file.__contains__('records') and file.endswith('.csv') and not file.__contains__('QA'):
                 other_records.append(os.path.join(self.df_destination, file))
-        for file in sorted(os.listdir(ponaqua_dfs)):
+        for file in sorted(os.listdir(mobil_dfs)):
             if file.__contains__('records') and file.endswith('.csv') and not file.__contains__('QA'):
-                other_records.append(os.path.join(ponaqua_dfs, file))
+                other_records.append(os.path.join(mobil_dfs, file))
 
         fig = plt.figure(1, figsize=(10, 4))
         global_dist_means = []
@@ -1901,7 +1922,7 @@ class MachineLog():
             # if patient_id != 1617814: continue
             # bodysite = bs_dict[patient_id]
             for beam_id in beam_list:
-                print(f'  Processing beam-ID {beam_id}..')
+                # print(f'  Processing beam-ID {beam_id}..')
                 beam_df = this_record_df.loc[this_record_df['BEAM_ID'] == beam_id]
                 beam_fxs = beam_df['FRACTION_ID'].drop_duplicates()
                 ref_df = beam_df.loc[beam_df['FRACTION_ID'] == beam_fxs.iloc[0]]
@@ -1963,7 +1984,8 @@ class MachineLog():
             if not all:
                 break    
             else:
-                print(f'\n>> FINISHED', n + 1, 'of', len(other_records), 'datasets <<\n')    
+                # print(f'\n>> FINISHED', n + 1, 'of', len(other_records), 'datasets <<\n')  
+                pass  
         
         passed, passmark = 0, 0.5
         for dist in global_dist_means:
@@ -1975,7 +1997,7 @@ class MachineLog():
         plt.xlabel('Date [YYYY-MM-DD]')
         # plt.ylabel('Mean field $\Delta$ to Fx-01 [mm]')
         plt.ylabel('Mean spot position offset [mm]')
-        plt.ylim(0.0, 1.0)
+        plt.ylim(0.0, 5.0)
         plt.grid(axis='y')
         if not all:
             plt.title(f'Delivery variance in recorded spot position (pat.-ID {self.patient_id})', fontweight='bold')
@@ -2070,7 +2092,8 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted\1617814'
+    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
     # erroneous = [1230180, 1625909, 1627648, 1660835, 1698000, 1700535]
@@ -2084,6 +2107,8 @@ if __name__ == '__main__':
     # root.destroy()
     # import time
     # for i, patient_id in enumerate(os.listdir(root_dir)):
+    #     if patient_id not in ['1689518', '1714496', '442226', '645070']:
+    #         continue
     #     print(f'\n...STARTING PATIENT {patient_id} ({i + 1}/{len(os.listdir(root_dir))})...\n')
     #     try: log = MachineLog(os.path.join(root_dir, patient_id))
     #     except: 
@@ -2121,11 +2146,11 @@ if __name__ == '__main__':
 
     # log.prepare_dataframe()
     # log.plot_beam_layers()
-    # log.prepare_qa_dataframe()
+    log.prepare_qa_dataframe()
     # log.prepare_deltaframe()
     # log.beam_histos()
     # log.delta_dependencies()
-    log.fractional_evolution(all=True)
+    # log.fractional_evolution(all=True)
     # log.plan_creator(fraction='all', mode='all')
     # log.delta_correlation_matrix(gtr_only=False)
     pass
