@@ -1,4 +1,4 @@
-'''
+﻿'''
 Author:     Lukas C. Wolter, OncoRay ZIK, Dresden, Germany
 Project:    Logfile-based patient-specific quality assurance
 Encoding:   UTF-8
@@ -353,17 +353,17 @@ class MachineLog():
                                 record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['CHARGE(C)']] = accumulated_charge  # accumulate charge released per spot
                                 
                                 # average over all spot entries for most accurate position/shape (recommended by IBA)
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POS_IC23(mm)']] = submap_df['X_POSITION(mm)'].mean()
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POS_IC23(mm)']] = submap_df['Y_POSITION(mm)'].mean()
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_WID_IC23(mm)']] = submap_df['X_WIDTH(mm)'].mean()
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_WID_IC23(mm)']] = submap_df['Y_WIDTH(mm)'].mean()
+                                record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0), ['X_POS_IC23(mm)']] = submap_df['X_POSITION(mm)'].mean()
+                                record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0), ['Y_POS_IC23(mm)']] = submap_df['Y_POSITION(mm)'].mean()
+                                record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0), ['X_WID_IC23(mm)']] = submap_df['X_WIDTH(mm)'].mean()
+                                record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0), ['Y_WID_IC23(mm)']] = submap_df['Y_WIDTH(mm)'].mean()
 
                                 current_spot_submap = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] > current_spot_submap]['SUBMAP_NUMBER'].min()  # proceed to next submap
                                 current_spot_id += 1  # keep track of spot id
 
                             record_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
                             record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entry for each spot
-                            record_file_df = record_file_df.loc[(record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0)]  # drop unusable rows
+                            # record_file_df = record_file_df.loc[(record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0)]  # drop unusable rows
                             
                             # draw machine parameters from *map_specif*.csv
                             for specif_file in record_specifs:  
@@ -471,10 +471,10 @@ class MachineLog():
                                 accumulated_charge = submap_df.loc[submap_df['DOSE_PRIM(C)'] != -10000.0, ['DOSE_PRIM(C)']].abs().sum().iloc[0]
                                 tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['CHARGE(C)']] = accumulated_charge
 
-                                tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POS_IC23(mm)']] = submap_df['X_POSITION(mm)'].mean()
-                                tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POS_IC23(mm)']] = submap_df['Y_POSITION(mm)'].mean()
-                                tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_WID_IC23(mm)']] = submap_df['X_WIDTH(mm)'].mean()
-                                tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_WID_IC23(mm)']] = submap_df['Y_WIDTH(mm)'].mean()
+                                tuning_file_df.loc[(tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (tuning_file_df['X_POSITION(mm)'] != -10000.0) & (tuning_file_df['Y_POSITION(mm)'] != -10000.0), ['X_POS_IC23(mm)']] = submap_df['X_POSITION(mm)'].mean()
+                                tuning_file_df.loc[(tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (tuning_file_df['X_POSITION(mm)'] != -10000.0) & (tuning_file_df['Y_POSITION(mm)'] != -10000.0), ['Y_POS_IC23(mm)']] = submap_df['Y_POSITION(mm)'].mean()
+                                tuning_file_df.loc[(tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (tuning_file_df['X_POSITION(mm)'] != -10000.0) & (tuning_file_df['Y_POSITION(mm)'] != -10000.0), ['X_WID_IC23(mm)']] = submap_df['X_WIDTH(mm)'].mean()
+                                tuning_file_df.loc[(tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (tuning_file_df['X_POSITION(mm)'] != -10000.0) & (tuning_file_df['Y_POSITION(mm)'] != -10000.0), ['Y_WID_IC23(mm)']] = submap_df['Y_WIDTH(mm)'].mean()
 
                                 current_spot_submap = tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] > current_spot_submap]['SUBMAP_NUMBER'].min()
                                 current_spot_id += 1
@@ -613,7 +613,7 @@ class MachineLog():
     '''
     def prepare_qa_dataframe(self) -> None:
         # allowed beam parameters
-        qa_energies = [100., 140., 165., 185., 205., 226.7]
+        qa_energies = [100., 120., 140., 165., 185., 205., 226.7]
         qa_angles = np.linspace(0., 360., 8, endpoint=False)
         qa_spots = [18, 22]
         qa_xy = [0., 30., 60., 120.]
@@ -854,7 +854,7 @@ class MachineLog():
     Returns:    plan_dcm - DICOM filename
                 beam_ds - beam dataset, read-in with pydicom
     '''
-    def dicom_finder(self, fraction_id, beam_id, verbose=True):
+    def dicom_finder(self, fraction_id, beam_id, verbose=False):
         fraction_df = self.patient_record_df.loc[self.patient_record_df['FRACTION_ID'] == fraction_id]  # slice patient dataframe
         
         # beam naming by planners might be inconsistent (BeamName vs. BeamDescription tag in dicom)
@@ -869,11 +869,13 @@ class MachineLog():
 
         if verbose: print('  Trying to auto-locate patient plan dicoms..')
 
-        # auto-location of plan DICOM        
-        for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
-            for fname in filenames:
-                if fname.__contains__('RP') and fname.endswith('.dcm') and not fname.__contains__('log'):
-                    ds = pydicom.read_file(os.path.join(path, fname))
+        # auto-location of plan DICOM     
+        try:
+            delivered = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\DeliveredPlans'
+            plan_dir = os.path.join(delivered, self.patient_id)
+            for file in os.listdir(plan_dir):
+                if file.endswith('.dcm'):
+                    ds = pydicom.read_file(os.path.join(plan_dir, file))
                     for beam in ds.IonBeamSequence:
                         plan_energies = np.array(pd.Series(sorted([layer.NominalBeamEnergy for layer in beam.IonControlPointSequence])).drop_duplicates().to_list())
                         log_energies = np.array(sorted(beam_df['LAYER_ENERGY(MeV)'].drop_duplicates().to_list()))
@@ -883,14 +885,34 @@ class MachineLog():
                             # print(beam.IonControlPointSequence[0].GantryAngle, gtr_angle, len(beam.IonControlPointSequence), n_layers * 2)
                             max_energy_diff = np.max(np.abs(plan_energies - log_energies))
                             if max_energy_diff < 0.1:  # tolerance on energy diff to plan, logs normally below dE = 0.1MeV
-                                plan_dcm = os.path.join(path, fname)
+                                plan_dcm = os.path.join(plan_dir, file)
                                 beam_ds = beam
-                                if verbose:
-                                    if not found:
-                                        print('    Found matching DICOM -', fname)
-                                    else:
-                                        print('    /!\ Further DICOM match -', fname)
                                 found = True
+
+        except:   
+            print('Pre-defined directory search failed')
+            return None
+            for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
+                for fname in filenames:
+                    if fname.endswith('.dcm') and not fname.__contains__('log'):
+                        ds = pydicom.read_file(os.path.join(path, fname))
+                        for beam in ds.IonBeamSequence:
+                            plan_energies = np.array(pd.Series(sorted([layer.NominalBeamEnergy for layer in beam.IonControlPointSequence])).drop_duplicates().to_list())
+                            log_energies = np.array(sorted(beam_df['LAYER_ENERGY(MeV)'].drop_duplicates().to_list()))
+                            
+                            # check gantry angle, total layers, beam energies. Do not check names, they are non-standardized
+                            if float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:  # layer sequence in DICOM has double entries
+                                # print(beam.IonControlPointSequence[0].GantryAngle, gtr_angle, len(beam.IonControlPointSequence), n_layers * 2)
+                                max_energy_diff = np.max(np.abs(plan_energies - log_energies))
+                                if max_energy_diff < 0.1:  # tolerance on energy diff to plan, logs normally below dE = 0.1MeV
+                                    plan_dcm = os.path.join(path, fname)
+                                    beam_ds = beam
+                                    if verbose:
+                                        if not found:
+                                            print('    Found matching DICOM -', fname)
+                                        else:
+                                            print('    /!\ Further DICOM match -', fname)
+                                    found = True
                             
         while not found:  # fallback: open dicom file manually if failed
             if not verbose: return None
@@ -1266,6 +1288,7 @@ class MachineLog():
                     has_plan = True
                 except:
                     print(f'''  /!\ No plan dicom found for beam-ID {beam_id} in fraction-ID {fx_id}, setting NaN's..''')
+                    return None
 
                 # for bid in beam_df['BEAM_ID'].drop_duplicates():
                 #     if str(bid).__contains__(str(beam_id)) or str(beam_id).__contains__(str(bid)):
@@ -2116,6 +2139,11 @@ if __name__ == '__main__':
     #         continue
 
     #     log.prepare_dataframe()
+    # ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
+    # for id in ponaqua_qualified:
+    #     log = MachineLog(os.path.join(root_dir, id))
+    #     log.prepare_dataframe()
+    #     log.prepare_deltaframe()
     
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
