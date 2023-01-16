@@ -232,7 +232,7 @@ class MachineLog():
                         print(f'  /x\ No logfiles found for beam-ID {beam_id} in fraction {fraction_id}')
                         continue
 
-                num_layers = max([int(fname.split('_')[2].split('_')[0]) + 1 for fname in map_records])
+                num_layers = max([int(fname.split('_')[2].split('_')[0]) + 1 for fname in tunings])  # every planned layer must have a tuning file, but not necessarily a record file
 
                 # draw beam specs from *_beam.csv
                 with open(beam_file, 'r') as beam_file:  
@@ -865,54 +865,90 @@ class MachineLog():
 
         gtr_angle = beam_df['GANTRY_ANGLE'].iloc[0]
         n_layers = beam_df['TOTAL_LAYERS'].iloc[0]
+        log_energies = np.array([np.round(e, 1) for e in sorted(beam_df['LAYER_ENERGY(MeV)'].drop_duplicates().to_list())])
+        
+        print(f'Looking for beam-ID {beam_id} with GTR{gtr_angle}, n_layers = {n_layers}, E = [{np.round(min(log_energies), 1)} .. {np.round(max(log_energies), 1)}]')
         found = False
 
         if verbose: print('  Trying to auto-locate patient plan dicoms..')
 
-        # auto-location of plan DICOM     
-        try:
-            delivered = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\DeliveredPlans'
-            plan_dir = os.path.join(delivered, self.patient_id)
-            for file in os.listdir(plan_dir):
-                if file.endswith('.dcm'):
-                    ds = pydicom.read_file(os.path.join(plan_dir, file))
-                    for beam in ds.IonBeamSequence:
-                        plan_energies = np.array(pd.Series(sorted([layer.NominalBeamEnergy for layer in beam.IonControlPointSequence])).drop_duplicates().to_list())
-                        log_energies = np.array(sorted(beam_df['LAYER_ENERGY(MeV)'].drop_duplicates().to_list()))
-                        
-                        # check gantry angle, total layers, beam energies. Do not check names, they are non-standardized
-                        if float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:  # layer sequence in DICOM has double entries
-                            # print(beam.IonControlPointSequence[0].GantryAngle, gtr_angle, len(beam.IonControlPointSequence), n_layers * 2)
+        # auto-location of plan DICOM    
+        delivered = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\DeliveredPlans'
+        plan_dir = os.path.join(delivered, self.patient_id)
+        for file in os.listdir(plan_dir):
+            if file.endswith('.dcm'):
+                ds = pydicom.read_file(os.path.join(plan_dir, file))
+                try:
+                    beam_seq = ds.IonBeamSequence
+                except AttributeError:
+                    if verbose: print(f'  /x\ DICOM {file} is SOP storage class, not actual RTPLAN')
+                    continue
+
+                for beam in ds.IonBeamSequence:
+                    plan_energies = np.array(pd.Series(sorted([layer.NominalBeamEnergy for layer in beam.IonControlPointSequence])).drop_duplicates().to_list())
+                    
+                    # check gantry angle, total layers, beam energies. Do not check names, they are non-standardized
+                    if float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:  # layer sequence in DICOM has double entries, BUT first/last layer might be missing due to single-spot layer tuning
+                        try:
                             max_energy_diff = np.max(np.abs(plan_energies - log_energies))
                             if max_energy_diff < 0.1:  # tolerance on energy diff to plan, logs normally below dE = 0.1MeV
                                 plan_dcm = os.path.join(plan_dir, file)
                                 beam_ds = beam
                                 found = True
+                    
+                        except:
+                            for plan_e in plan_energies:
+                                if plan_e not in log_energies:
+                                    if plan_e == max(plan_energies):
+                                        plan_dcm = os.path.join(plan_dir, file)
+                                        beam_ds = beam
+                                        found = True
+                                        if verbose: 
+                                            n_spots = beam.IonControlPointSequence[0].NumberOfScanSpotPositions
+                                            if n_spots <= 1: print(f'  /!\ First layer with energy {plan_e} contains {n_spots} spot(s) - omitted by tuning?')
+                                            else: return None
+                                    elif plan_e == min(plan_energies):
+                                        plan_dcm = os.path.join(plan_dir, file)
+                                        beam_ds = beam
+                                        found = True
+                                        if verbose: 
+                                            n_spots = beam.IonControlPointSequence[-2].NumberOfScanSpotPositions
+                                            if n_spots <= 1: print(f'  /!\ Last layer with energy {plan_e} contains {n_spots} spot(s) - omitted by tuning?')
+                                            else: return None
+                                    else:
+                                        if verbose: print(f'  /x\ Log-file is missing energy {plan_e}, skipping beam {beam_id}..')
+                                        return None
 
-        except:   
-            print('Pre-defined directory search failed')
-            return None
-            for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
-                for fname in filenames:
-                    if fname.endswith('.dcm') and not fname.__contains__('log'):
-                        ds = pydicom.read_file(os.path.join(path, fname))
-                        for beam in ds.IonBeamSequence:
-                            plan_energies = np.array(pd.Series(sorted([layer.NominalBeamEnergy for layer in beam.IonControlPointSequence])).drop_duplicates().to_list())
-                            log_energies = np.array(sorted(beam_df['LAYER_ENERGY(MeV)'].drop_duplicates().to_list()))
+                        print('\n\t\tLOG\tPLAN')
+                        print(f'Gantry\t\t{gtr_angle}\t{beam.IonControlPointSequence[0].GantryAngle}')
+                        print(f'Layers\t\t{n_layers}\t{len(beam.IonControlPointSequence) / 2}')
+                        print(f'Energy max.\t{max(log_energies)}\t{max(plan_energies)}')
+                        print(f'Energy min.\t{min(log_energies)}\t{min(plan_energies)}')
+
+        # except:   
+        #     print('Pre-defined directory search failed')
+        #     return None
+        #     for path, dirnames, filenames in os.walk(os.path.join(self.logfile_dir, '..')):
+        #         for fname in filenames:
+        #             if fname.endswith('.dcm') and not fname.__contains__('log'):
+        #                 ds = pydicom.read_file(os.path.join(path, fname))
+        #                 for beam in ds.IonBeamSequence:
+        #                     plan_energies = np.array(pd.Series(sorted([layer.NominalBeamEnergy for layer in beam.IonControlPointSequence])).drop_duplicates().to_list())
+        #                     log_energies = np.array(sorted(beam_df['LAYER_ENERGY(MeV)'].drop_duplicates().to_list()))
                             
-                            # check gantry angle, total layers, beam energies. Do not check names, they are non-standardized
-                            if float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:  # layer sequence in DICOM has double entries
-                                # print(beam.IonControlPointSequence[0].GantryAngle, gtr_angle, len(beam.IonControlPointSequence), n_layers * 2)
-                                max_energy_diff = np.max(np.abs(plan_energies - log_energies))
-                                if max_energy_diff < 0.1:  # tolerance on energy diff to plan, logs normally below dE = 0.1MeV
-                                    plan_dcm = os.path.join(path, fname)
-                                    beam_ds = beam
-                                    if verbose:
-                                        if not found:
-                                            print('    Found matching DICOM -', fname)
-                                        else:
-                                            print('    /!\ Further DICOM match -', fname)
-                                    found = True
+        #                     # check gantry angle, total layers, beam energies. Do not check names, they are non-standardized
+        #                     if float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:  # layer sequence in DICOM has double entries
+        #                         # print(beam.IonControlPointSequence[0].GantryAngle, gtr_angle, len(beam.IonControlPointSequence), n_layers * 2)
+        #                         max_energy_diff = np.max(np.abs(plan_energies - log_energies))
+        #                         if max_energy_diff < 0.1:  # tolerance on energy diff to plan, logs normally below dE = 0.1MeV
+        #                             plan_dcm = os.path.join(path, fname)
+        #                             beam_ds = beam
+        #                             if verbose:
+        #                                 if not found:
+        #                                     print('    Found matching DICOM -', fname)
+        #                                 else:
+        #                                     print('    /!\ Further DICOM match -', fname)
+        #                             found = True
                             
         while not found:  # fallback: open dicom file manually if failed
             if not verbose: return None
@@ -2115,8 +2151,8 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
-    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
+    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
     # erroneous = [1230180, 1625909, 1627648, 1660835, 1698000, 1700535]
@@ -2139,11 +2175,21 @@ if __name__ == '__main__':
     #         continue
 
     #     log.prepare_dataframe()
-    # ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
-    # for id in ponaqua_qualified:
-    #     log = MachineLog(os.path.join(root_dir, id))
-    #     log.prepare_dataframe()
-    #     log.prepare_deltaframe()
+    ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
+    for id in ponaqua_qualified:
+        log = MachineLog(os.path.join(root_dir, id))
+        # log.prepare_deltaframe()
+        if int(id) == 1683480:
+            beams = log.patient_record_df.loc[log.patient_record_df['FRACTION_ID'] == log.fraction_list[-1], 'BEAM_ID'].drop_duplicates().to_list()
+        else:
+            beams = log.patient_record_df.loc[log.patient_record_df['FRACTION_ID'] == log.fraction_list[0], 'BEAM_ID'].drop_duplicates().to_list()
+        print('\n>>>', id, '<<<')
+        for beam in beams:
+            print('\t', beam)
+            if int(id) == 1683480:
+                log.dicom_finder(log.fraction_list[-1], beam, verbose=True)
+            else:
+                log.dicom_finder(log.fraction_list[0], beam, verbose=True)
     
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
@@ -2159,7 +2205,7 @@ if __name__ == '__main__':
     #     # log.prepare_deltaframe()
     #     # log.delta_dependencies()
 
-    log = MachineLog(root_dir)
+    # log = MachineLog(root_dir)
     # df = log.patient_record_df
     # for fx in log.fraction_list:
     #     control = df.loc[(df['FRACTION_ID'] == fx) & (df['BEAM_ID'] == '2')]
@@ -2174,7 +2220,7 @@ if __name__ == '__main__':
 
     # log.prepare_dataframe()
     # log.plot_beam_layers()
-    log.prepare_qa_dataframe()
+    # log.prepare_qa_dataframe()
     # log.prepare_deltaframe()
     # log.beam_histos()
     # log.delta_dependencies()
