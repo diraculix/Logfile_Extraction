@@ -1,4 +1,4 @@
-print('Read dataframe .. ', end='\r')
+﻿print('Read dataframe .. ', end='\r')
 
 import os
 import pandas as pd
@@ -24,45 +24,60 @@ def plot_qa_beams(qa_df):
     beam_ids = qa_df['BEAM_ID'].drop_duplicates().to_list()
     qa_df = qa_df.astype({'FRACTION_ID':str})
 
-    sns.set_theme()
-    fig = plt.figure(figsize=(11, 8))
-    g = sns.scatterplot(data=qa_df, x='X_POSITION(mm)', y='Y_POSITION(mm)', hue='LAYER_ENERGY(MeV)', size='X_WIDTH(mm)', edgecolor='black')
-    sns.move_legend(g, "upper left", bbox_to_anchor=(1, 1))
-    plt.tight_layout()
-    plt.savefig(f'''{output_dir}/QA_scatter_{qa_df['LAYER_ENERGY(MeV)'].mean()}_{qa_df['GANTRY_ANGLE'].mean()}.png''', dpi=300)
-    plt.show()
-    plt.clf()
+    # sns.set_theme()
+    # fig = plt.figure(figsize=(11, 8))
+    # g = sns.scatterplot(data=qa_df, x='X_POSITION(mm)', y='Y_POSITION(mm)', hue='LAYER_ENERGY(MeV)', size='X_WIDTH(mm)', edgecolor='black')
+    # sns.move_legend(g, "upper left", bbox_to_anchor=(1, 1))
+    # plt.tight_layout()
+    # plt.savefig(f'''{output_dir}/QA_scatter_{qa_df['LAYER_ENERGY(MeV)'].mean()}_{qa_df['GANTRY_ANGLE'].mean()}.png''', dpi=300)
+    # plt.show()
+    # plt.clf()
 
-    g = sns.histplot(data=qa_df[['DELTA_X(mm)','DELTA_Y(mm)']], kde=True)
-    plt.xlabel('$\Delta$ (log - plan) [mm]')
-    leg = g.axes.get_legend()
-    new_title = 'Mean difference to plan'
-    leg.set_title(new_title)
-    new_labels = [f'''$\Delta x =$ {np.round(qa_df['DELTA_X(mm)'].median(), 3)} $\pm$ {np.round(qa_df['DELTA_X(mm)'].std(), 3)}''', f'''$\Delta y =$ {np.round(qa_df['DELTA_Y(mm)'].median(), 3)} $\pm$ {np.round(qa_df['DELTA_Y(mm)'].std(), 3)}''']
-    for t, l in zip(leg.texts, new_labels):
-        t.set_text(l)   
-    plt.tight_layout()
-    plt.savefig(f'''{output_dir}/QA_hist_{qa_df['LAYER_ENERGY(MeV)'].mean()}_{qa_df['GANTRY_ANGLE'].mean()}.png''', dpi=300)
-    plt.show()
-    plt.clf()
+    # g = sns.histplot(data=qa_df[['DELTA_X(mm)','DELTA_Y(mm)']], kde=True)
+    # plt.xlabel('$\Delta$ (log - plan) [mm]')
+    # leg = g.axes.get_legend()
+    # new_title = 'Mean difference to plan'
+    # leg.set_title(new_title)
+    # new_labels = [f'''$\Delta x =$ {np.round(qa_df['DELTA_X(mm)'].median(), 3)} $\pm$ {np.round(qa_df['DELTA_X(mm)'].std(), 3)}''', f'''$\Delta y =$ {np.round(qa_df['DELTA_Y(mm)'].median(), 3)} $\pm$ {np.round(qa_df['DELTA_Y(mm)'].std(), 3)}''']
+    # for t, l in zip(leg.texts, new_labels):
+    #     t.set_text(l)   
+    # plt.tight_layout()
+    # plt.savefig(f'''{output_dir}/QA_hist_{qa_df['LAYER_ENERGY(MeV)'].mean()}_{qa_df['GANTRY_ANGLE'].mean()}.png''', dpi=300)
+    # plt.show()
+    # plt.clf()
 
-    sns.color_palette('hls', n_colors=8)
-    g = sns.pairplot(data=qa_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'GANTRY_ANGLE', 'LAYER_ENERGY(MeV)'], hue='GANTRY_ANGLE', corner=True)
-    plt.tight_layout()
-    plt.show()
-    plt.clf()
-
-    only_one_angle = qa_dataframe.loc[qa_dataframe['GANTRY_ANGLE'] == 0.0]
-    only_one_energy = qa_dataframe.loc[qa_dataframe['LAYER_ENERGY(MeV)'] == 100.].astype({'GANTRY_ANGLE':float})
-    g = sns.pairplot(data=only_one_angle[['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)', 'LAYER_ENERGY(MeV)', 'GANTRY_ANGLE']], vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)'], hue='LAYER_ENERGY(MeV)', corner=True)
-    plt.suptitle('Gantry Angle 0.0°', fontweight='bold')
-    plt.savefig(f'{output_dir}/QA_pairplot_one_angle.png', dpi=600)
-    plt.clf()
+    energies, angles = qa_df['LAYER_ENERGY(MeV)'].drop_duplicates(), qa_df['GANTRY_ANGLE'].drop_duplicates()
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5), sharey=True)
+    inv_width = 2
+    for energy in energies:
+        count = len(qa_df.loc[qa_df['LAYER_ENERGY(MeV)'] == energy])
+        ax[0].bar(energy, count, color='tab:blue', width=(max(energies) - min(energies)) / len(energies) / inv_width)
+        ax[0].set_ylabel('Count')
+        ax[0].set_xlabel('Energy [MeV]')
+    for gantry in angles:
+        count = len(qa_df.loc[qa_df['GANTRY_ANGLE'] == gantry])
+        ax[1].bar(gantry, count, color='tab:orange', width=(max(angles) - min(angles)) / len(angles) / inv_width)
+        ax[1].set_xlabel('Gantry angle [°]')
     
-    g = sns.pairplot(data=only_one_energy[['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)', 'LAYER_ENERGY(MeV)', 'GANTRY_ANGLE']], vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)'], hue='GANTRY_ANGLE', corner=True)
-    plt.suptitle('Beam Energy 100.0 MeV', fontweight='bold')
-    plt.savefig(f'{output_dir}/QA_pairplot_one_energy.png', dpi=600)
-    plt.clf()
+    plt.suptitle('Spot shape QA energy/angle frequency', fontweight='bold')
+    plt.show()
+    # sns.color_palette('hls', n_colors=8)
+    # g = sns.pairplot(data=qa_df, vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)'], hue='GANTRY_ANGLE', corner=True)
+    # plt.tight_layout()
+    # plt.show()
+    # plt.clf()
+
+    # only_one_angle = qa_dataframe.loc[qa_dataframe['GANTRY_ANGLE'] == 0.0]
+    # only_one_energy = qa_dataframe.loc[qa_dataframe['LAYER_ENERGY(MeV)'] == 100.].astype({'GANTRY_ANGLE':float})
+    # g = sns.pairplot(data=only_one_angle[['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)', 'LAYER_ENERGY(MeV)', 'GANTRY_ANGLE']], vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)'], hue='LAYER_ENERGY(MeV)', corner=True)
+    # plt.suptitle('Gantry Angle 0.0°', fontweight='bold')
+    # plt.savefig(f'{output_dir}/QA_pairplot_one_angle.png', dpi=600)
+    # plt.clf()
+    
+    # g = sns.pairplot(data=only_one_energy[['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)', 'LAYER_ENERGY(MeV)', 'GANTRY_ANGLE']], vars=['DELTA_X(mm)', 'DELTA_Y(mm)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)'], hue='GANTRY_ANGLE', corner=True)
+    # plt.suptitle('Beam Energy 100.0 MeV', fontweight='bold')
+    # plt.savefig(f'{output_dir}/QA_pairplot_one_energy.png', dpi=600)
+    # plt.clf()
 
     return None
 
@@ -177,7 +192,7 @@ def correct_gtr(qa_df):
     plt.show()
 
 def missing_beams(qa_df):
-    qa_energies = [100., 140., 165., 185., 205., 226.7]
+    qa_energies = [100., 120., 140., 165., 185., 205., 226.7]
     qa_angles = np.linspace(0., 360., 8, endpoint=False)
     fx_list = qa_df.FRACTION_ID.drop_duplicates()
 
@@ -207,6 +222,6 @@ if __name__ == '__main__':
     # qa_dataframe = qa_dataframe.loc[qa_dataframe['FRACTION_ID'] > 20220000]
     # print(qa_dataframe.FRACTION_ID.drop_duplicates())
     print('Read dataframe .. DONE')
-    # plot_qa_beams(qa_dataframe)
+    plot_qa_beams(qa_dataframe)
     # correct_gtr(qa_dataframe)
-    missing_beams(qa_dataframe)
+    # missing_beams(qa_dataframe)
