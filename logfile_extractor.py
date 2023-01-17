@@ -551,7 +551,7 @@ class MachineLog():
                         continue
                     
                     del to_do_layers, to_do_tunings
-                    
+
                     if not omitted_by_tuning:
                         finalized_layers.append(layer_df)
                     finalized_tunings.append(tuning_df)
@@ -577,8 +577,7 @@ class MachineLog():
                         os.remove(file)
 
                 # concatenate single layer dataframes
-                if not omitted_by_tuning:
-                    self.patient_record_df = pd.concat(finalized_layers, sort=True)
+                self.patient_record_df = pd.concat(finalized_layers, sort=True)
                 self.patient_tuning_df = pd.concat(finalized_tunings, sort=True)
                 os.chdir(self.logfile_dir)
 
@@ -2177,19 +2176,13 @@ if __name__ == '__main__':
     #     log.prepare_dataframe()
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
     for id in ponaqua_qualified:
-        log = MachineLog(os.path.join(root_dir, id))
-        # log.prepare_deltaframe()
-        if int(id) == 1683480:
-            beams = log.patient_record_df.loc[log.patient_record_df['FRACTION_ID'] == log.fraction_list[-1], 'BEAM_ID'].drop_duplicates().to_list()
+        if int(id) == 1635796:
+            log = MachineLog(os.path.join(root_dir, id))
+            log.prepare_dataframe()
         else:
-            beams = log.patient_record_df.loc[log.patient_record_df['FRACTION_ID'] == log.fraction_list[0], 'BEAM_ID'].drop_duplicates().to_list()
-        print('\n>>>', id, '<<<')
-        for beam in beams:
-            print('\t', beam)
-            if int(id) == 1683480:
-                log.dicom_finder(log.fraction_list[-1], beam, verbose=True)
-            else:
-                log.dicom_finder(log.fraction_list[0], beam, verbose=True)
+            continue
+        
+        # log.prepare_deltaframe()
     
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
