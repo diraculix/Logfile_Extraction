@@ -862,11 +862,9 @@ class MachineLog():
         gtr_angle = beam_df['GANTRY_ANGLE'].iloc[0]
         n_layers = beam_df['TOTAL_LAYERS'].iloc[0]
         log_energies = np.array([np.round(e, 1) for e in sorted(beam_df['LAYER_ENERGY(MeV)'].drop_duplicates().to_list())])
-        
-        print(f'Looking for beam-ID {beam_id} with GTR{gtr_angle}, n_layers = {n_layers}, E = [{np.round(min(log_energies), 1)} .. {np.round(max(log_energies), 1)}]')
         found = False
-
-        if verbose: print('  Trying to auto-locate patient plan dicoms..')
+        
+        if verbose: print(f'Looking for beam-ID {beam_id} with GTR{gtr_angle}, n_layers = {n_layers}, E = [{np.round(min(log_energies), 1)} .. {np.round(max(log_energies), 1)}]')
 
         # auto-location of plan DICOM    
         delivered = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\DeliveredPlans'
@@ -915,11 +913,12 @@ class MachineLog():
                                         if verbose: print(f'  /x\ Log-file is missing energy {plan_e}, skipping beam {beam_id}..')
                                         return None
 
-                        print('\n\t\tLOG\tPLAN')
-                        print(f'Gantry\t\t{gtr_angle}\t{beam.IonControlPointSequence[0].GantryAngle}')
-                        print(f'Layers\t\t{n_layers}\t{len(beam.IonControlPointSequence) / 2}')
-                        print(f'Energy max.\t{max(log_energies)}\t{max(plan_energies)}')
-                        print(f'Energy min.\t{min(log_energies)}\t{min(plan_energies)}')
+                        if verbose:
+                            print('\n\t\tLOG\tPLAN')
+                            print(f'Gantry\t\t{gtr_angle}\t{beam.IonControlPointSequence[0].GantryAngle}')
+                            print(f'Layers\t\t{n_layers}\t{len(beam.IonControlPointSequence) / 2}')
+                            print(f'Energy max.\t{max(log_energies)}\t{max(plan_energies)}')
+                            print(f'Energy min.\t{min(log_energies)}\t{min(plan_energies)}')
 
         # except:   
         #     print('Pre-defined directory search failed')
@@ -1320,8 +1319,7 @@ class MachineLog():
                     has_plan = True
                 except:
                     print(f'''  /!\ No plan dicom found for beam-ID {beam_id} in fraction-ID {fx_id}, setting NaN's..''')
-                    return None
-
+                    
                 # for bid in beam_df['BEAM_ID'].drop_duplicates():
                 #     if str(bid).__contains__(str(beam_id)) or str(beam_id).__contains__(str(bid)):
                 #         beam_df = beam_df.loc[beam_df['BEAM_ID'] == bid]
@@ -1823,8 +1821,9 @@ class MachineLog():
 
                 total_layers = beam_df['TOTAL_LAYERS'][0]
                 cumulative_mu = 0
-                for layer_id in target_record.loc[target_record['BEAM_ID'] == beam_id]['LAYER_ID'].drop_duplicates():
+                for layer_id in range(target_record.loc[target_record['BEAM_ID'] == beam_id]['TOTAL_LAYERS'].iloc[0]):
                     layer_df = target_record.loc[(target_record['BEAM_ID'] == beam_id) & (target_record['LAYER_ID'] == layer_id)]
+                    if layer_df.empty: print(f'  /!\ Layer-ID {layer_id} has no record, probably one-spot layer')
                     tuning_df = target_tuning.loc[(target_tuning['BEAM_ID'] == beam_id) & (target_tuning['LAYER_ID'] == layer_id)]
                     layer_xy, layer_mu, tuning_xy, tuning_mu = [], [], [], []
                     layer_energy = layer_df['LAYER_ENERGY(MeV)'].drop_duplicates().iloc[0]
@@ -1851,6 +1850,11 @@ class MachineLog():
                         layer_xy += tuning_xy
                         layer_mu += tuning_mu
                         n_log_spots = len(layer_mu)
+                        spot_diff = n_log_spots - n_plan_spots
+                        if layer_id != 0 and spot_diff > 1:  # allow 1 spot difference for all layers except the first (which might have multiple tuning spots)
+                            print(f'  /!\ Warning: {spot_diff} more spots recorded than planned in layer-ID {layer_id}, fraction-ID {fx_id}\n      > Check for additional tuning pulses')
+                        elif layer_id != 0 and spot_diff < 0:
+                            print(f'  /x\ Critical: {abs(spot_diff)} less spots recorded than planned in layer-ID {layer_id}, fraction-ID {fx_id}\n      > Review log-files')
 
                         plan_beam.IonControlPointSequence[layer_id * 2].NumberOfScanSpotPositions = plan_beam.IonControlPointSequence[layer_id * 2 + 1].NumberOfScanSpotPositions = n_log_spots
                         plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotPositionMap = plan_beam.IonControlPointSequence[layer_id * 2 + 1].ScanSpotPositionMap = layer_xy
