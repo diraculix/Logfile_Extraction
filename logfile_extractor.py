@@ -341,29 +341,49 @@ class MachineLog():
                             current_spot_submap = record_file_df['SUBMAP_NUMBER'].min()
                             current_spot_id = 0
                             record_file_df['SPOT_ID'] = 0
+                            previous_xpos, previous_ypos, previous_spot_submap = None, None, None
                             record_file_df.reindex()
 
                             # sweep over all spots in layer, SUBMAP_NUMBER is locked whenever a spot is active
                             while current_spot_submap <= record_file_df['SUBMAP_NUMBER'].max():
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['SPOT_ID']] = current_spot_id  # assign new column
+                                split_spot = False
+
+                                # get spot drill time and released charge
                                 spot_drill_time = len(record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap]) * 0.25  # in [ms]
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DRILL_TIME(ms)']] = spot_drill_time  # assign new column for drill time
                                 accumulated_charge = record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (record_file_df['DOSE_PRIM(C)'] != -10000.0), ['DOSE_PRIM(C)']].abs().sum().iloc[0]
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['CHARGE(C)']] = accumulated_charge  # accumulate charge released per spot
                                 
-                                # average over all spot entries for most accurate position/shape (recommended by IBA)
-                                record_file_df = record_file_df.loc[(record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0)]  # drop unusable rows
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POS_IC23(mm)']] = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POSITION(mm)']].mean().iloc[0]
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POS_IC23(mm)']] = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POSITION(mm)']].mean().iloc[0]
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_WID_IC23(mm)']] = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_WIDTH(mm)']].mean().iloc[0]
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_WID_IC23(mm)']] = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_WIDTH(mm)']].mean().iloc[0]
+                                # drop unusable rows AFTER charge extraction
+                                record_file_df.drop(record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (record_file_df['X_POSITION(mm)'] == -10000.0) & (record_file_df['Y_POSITION(mm)'] == -10000.0)].index, inplace=True)  # drop unusable rows for current submap
+                                
+                                # average over all spot entries for most accurate position/shape (recommended by IBA)                                
+                                mean_xpos, mean_ypos = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POSITION(mm)']].mean().iloc[0], record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POSITION(mm)']].mean().iloc[0]
+                                if current_spot_id != 0:
+                                    if abs(mean_xpos - previous_xpos) < 0.5 and abs(mean_ypos - previous_ypos) < 0.5:  # custom thresholds for split spots (in case of very high MU)
+                                        print(f'  /!\ Split spot detected in layer-ID {layer_id}, merging..')
+                                        split_spot = True
 
+                                # in case of split spot, add time and charge to previous spot
+                                if split_spot:
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == previous_spot_submap, ['DRILL_TIME(ms)']] += spot_drill_time
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == previous_spot_submap, ['CHARGE(C)']] += accumulated_charge
+                                    record_file_df.drop(record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap].index, inplace=True)
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == previous_spot_submap, ['SUBMAP_NUMBER']] = current_spot_submap
+                                else:
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['SPOT_ID']] = current_spot_id  # assign new column
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['DRILL_TIME(ms)']] = spot_drill_time  # assign new column for drill time
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['CHARGE(C)']] = accumulated_charge  # accumulate charge released per spot
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POS_IC23(mm)']] = mean_xpos
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POS_IC23(mm)']] = mean_ypos
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_WID_IC23(mm)']] = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_WIDTH(mm)']].mean().iloc[0]
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_WID_IC23(mm)']] = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_WIDTH(mm)']].mean().iloc[0]
+
+                                previous_xpos, previous_ypos, previous_spot_submap = mean_xpos, mean_ypos, current_spot_submap
                                 current_spot_submap = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] > current_spot_submap]['SUBMAP_NUMBER'].min()  # proceed to next submap
-                                current_spot_id += 1  # keep track of spot id
-
+                                if not split_spot: current_spot_id += 1  # keep track of spot id
+                            
                             record_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
                             record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entry for each spot
-                            
+
                             # draw machine parameters from *map_specif*.csv
                             for specif_file in record_specifs:  
                                 if int(specif_file.split('_')[2].split('_')[0]) == layer_id:
@@ -1363,12 +1383,12 @@ class MachineLog():
 
                             # match (x,y)-positions to plan, transform MU list equally
                             for i, log_spot in enumerate(log_xy):
-                                shifts = [np.array(plan_spot) - np.array(log_spot) for plan_spot in plan_xy]
+                                shifts = [np.array(log_spot) - np.array(plan_spot) for plan_spot in plan_xy]
                                 dists = [np.abs((shift).dot(shift)) for shift in shifts]
                                 index = dists.index(min(dists))
                                 dx, dy = shifts[index]
                                 delta_x.append(dx), delta_y.append(dy)
-                                delta_mu.append(plan_mu[index] - log_mu[i])
+                                delta_mu.append(log_mu[i] - plan_mu[index])
                                 log_xy_sorted[index] = log_xy[i]
                                 log_mu_sorted[index] = log_mu[i]
 
@@ -1547,46 +1567,57 @@ class MachineLog():
         print(f'''\nSelected option is ({choice}) {options[choice - 1]}. Starting..''')
 
         if choice == 1:
-            fig, axs = plt.subplots(2, 2, figsize=(10, 6))
+            beams = self.patient_delta_df.loc[~self.patient_delta_df['DELTA_X(mm)'].isna(), 'BEAM_ID'].drop_duplicates().to_list()  # only beams with existing delta
+            fig, axs = plt.subplots(len(beams), 4, figsize=(12, 3 * len(beams)), sharex='col')
             ax0 = fig.add_subplot(111, frameon=False)
             ax0.set_xticks([])
             ax0.set_yticks([])
-            axs = axs.flatten()
-            axs[0].hist(self.patient_delta_df['DELTA_X(mm)'], bins=80, alpha=0.7, edgecolor='black', label=f'''$\mu_x =$ {self.patient_delta_df['DELTA_X(mm)'].mean():.3f} mm\n$\sigma_x =$ {self.patient_delta_df['DELTA_X(mm)'].std():.5f} mm''')
-            axs[0].axvline(self.patient_delta_df['DELTA_X(mm)'].mean(), ls='-', color='black', lw=0.5)
-            axs[0].axvline(0.0, ls='--', color='black', lw=0.5)
-            axs[0].set_xlabel('$\Delta x$ to plan [mm]')
-            axs[0].set_xlim(-2, 2)
-            axs[1].hist(self.patient_delta_df['DELTA_Y(mm)'], bins=90, alpha=0.7, edgecolor='black', label=f'''$\mu_y =$ {self.patient_delta_df['DELTA_Y(mm)'].mean():.3f} mm\n$\sigma_y =$ {self.patient_delta_df['DELTA_Y(mm)'].std():.5f} mm''')
-            axs[1].axvline(self.patient_delta_df['DELTA_Y(mm)'].mean(), ls='-', color='black', lw=0.5)
-            axs[1].axvline(0.0, ls='--', color='black', lw=0.5)
-            axs[1].set_xlabel('$\Delta y$ to plan [mm]')
-            axs[1].set_xlim(-2, 2)
-            axs[2].hist(self.patient_delta_df['DELTA_MU'], bins=1500, color='tab:green', alpha=0.7, edgecolor='black', label=f'''$\mu_D =$ {self.patient_delta_df['DELTA_MU'].mean():.3f} MU\n$\sigma_D =$ {self.patient_delta_df['DELTA_MU'].std():.5f} MU''')
-            axs[2].axvline(self.patient_delta_df['DELTA_MU'].mean(), ls='-', color='black', lw=0.5)
-            axs[2].axvline(0.0, ls='--', color='black', lw=0.5)
-            axs[2].set_xlabel('Dose difference to plan [MU]')
-            axs[2].set_xlim(-0.005, 0.005)
-            # axs[2].set_ylim(0, 30000)
-            axs[3].hist(self.patient_delta_df['DELTA_E(MeV)'].drop_duplicates(), bins=17, color='tab:red', alpha=0.7, edgecolor='black', label=f'''$\mu_E =$ {self.patient_delta_df['DELTA_E(MeV)'].mean():.3f} MeV\n$\sigma_E =$ {self.patient_delta_df['DELTA_E(MeV)'].std():.5f} MeV''')
-            axs[3].axvline(self.patient_delta_df['DELTA_E(MeV)'].mean(), ls='-', color='black', lw=0.5)
-            axs[3].axvline(0.0, ls='--', color='black', lw=0.5)
-            axs[3].set_xlabel('Energy difference to plan [MeV]')
-            axs[3].set_xlim(-0.04, 0.04)
-            for ax in axs:
-                ax.grid(axis='y', zorder=-1)
-                ax.set_axisbelow(True)
-                # ax.set_yticklabels([])
-                ax.legend()
+            # axs = axs.flatten()
+            bins = 100
+            bin_xy = np.histogram(np.hstack((self.patient_delta_df.loc[~self.patient_delta_df['DELTA_X(mm)'].isna(), 'DELTA_X(mm)'], self.patient_delta_df.loc[~self.patient_delta_df['DELTA_X(mm)'].isna(), 'DELTA_Y(mm)'])), bins=bins)[1]
+            bin_mu = np.histogram(self.patient_delta_df.loc[~self.patient_delta_df['DELTA_X(mm)'].isna(), 'DELTA_MU'], bins=bins)[1]
+            bin_e = np.histogram(self.patient_delta_df.loc[~self.patient_delta_df['DELTA_X(mm)'].isna(),'DELTA_E(MeV)'], bins=bins)[1]
+
+            for row, beam in enumerate(beams):
+                beam_df = self.patient_delta_df.loc[self.patient_delta_df['BEAM_ID'] == beam]
+
+                axs[row, 0].hist(beam_df['DELTA_X(mm)'], bins=bin_xy, alpha=0.7, label=f'''$\mu_x =$ {beam_df['DELTA_X(mm)'].mean():.3f} mm\n$\sigma_x =$ {beam_df['DELTA_X(mm)'].std():.5f} mm''')
+                axs[row, 0].axvline(beam_df['DELTA_X(mm)'].mean(), ls='-', color='black', lw=0.5)
+                axs[row, 0].axvline(0.0, ls='--', color='black', lw=0.5)
+                axs[row, 0].set_xlabel('$\Delta x$ to plan [mm]')
+                # axs[row, 0].set_xlim(-2, 2)
+                axs[row, 1].hist(beam_df['DELTA_Y(mm)'], bins=bin_xy, alpha=0.7, label=f'''$\mu_y =$ {beam_df['DELTA_Y(mm)'].mean():.3f} mm\n$\sigma_y =$ {beam_df['DELTA_Y(mm)'].std():.5f} mm''')
+                axs[row, 1].axvline(beam_df['DELTA_Y(mm)'].mean(), ls='-', color='black', lw=0.5)
+                axs[row, 1].axvline(0.0, ls='--', color='black', lw=0.5)
+                axs[row, 1].set_xlabel('$\Delta y$ to plan [mm]')
+                # axs[row, 1].set_xlim(-2, 2)
+                axs[row, 2].hist(beam_df['DELTA_MU'], bins=bin_mu, color='tab:green', alpha=0.7, label=f'''$\mu_D =$ {beam_df['DELTA_MU'].mean():.3f} MU\n$\sigma_D =$ {beam_df['DELTA_MU'].std():.5f} MU''')
+                axs[row, 2].axvline(beam_df['DELTA_MU'].mean(), ls='-', color='black', lw=0.5)
+                axs[row, 2].axvline(0.0, ls='--', color='black', lw=0.5)
+                axs[row, 2].set_xlabel('$\Delta D$ to plan [MU]')
+                # axs[row, 2].set_xlim(-0.005, 0.005)
+                # axs[2].set_ylim(0, 30000)
+                axs[row, 3].hist(beam_df['DELTA_E(MeV)'].drop_duplicates(), bins=bin_e, color='tab:red', alpha=0.7, label=f'''$\mu_E =$ {beam_df['DELTA_E(MeV)'].mean():.3f} MeV\n$\sigma_E =$ {beam_df['DELTA_E(MeV)'].std():.5f} MeV''')
+                axs[row, 3].axvline(beam_df['DELTA_E(MeV)'].mean(), ls='-', color='black', lw=0.5)
+                axs[row, 3].axvline(0.0, ls='--', color='black', lw=0.5)
+                axs[row, 3].set_xlabel('$\Delta E$ to plan [MeV]')
+                # axs[row, 3].set_xlim(-0.04, 0.04)
+
+                print(f'>> BEAM {beam} <<')
+                print(f'''dx[mm]:\t\tmin={round(beam_df['DELTA_X(mm)'].min(), 3)}\tmax={round(beam_df['DELTA_X(mm)'].max(), 3)}\tmean={round(beam_df['DELTA_X(mm)'].mean(), 3)}\tstd={round(beam_df['DELTA_X(mm)'].std(), 3)}''')
+                print(f'''dy[mm]:\t\tmin={round(beam_df['DELTA_Y(mm)'].min(), 3)}\tmax={round(beam_df['DELTA_Y(mm)'].max(), 3)}\tmean={round(beam_df['DELTA_Y(mm)'].mean(), 3)}\tstd={round(beam_df['DELTA_Y(mm)'].std(), 3)}''')
+                print(f'''dD[MU]:\t\tmin={round(beam_df['DELTA_MU'].min(), 4)}\tmax={round(beam_df['DELTA_MU'].max(), 4)}\tmean={round(beam_df['DELTA_MU'].mean(), 4)}\tstd={round(beam_df['DELTA_MU'].std(), 4)}''')
+                print(f'''dE[MeV]:\tmin={round(beam_df['DELTA_E(MeV)'].min(), 4)}\tmax={round(beam_df['DELTA_E(MeV)'].max(), 4)}\tmean={round(beam_df['DELTA_E(MeV)'].mean(), 4)}\tstd={round(beam_df['DELTA_E(MeV)'].std(), 4)}''')
+
+                for j in range(4):
+                    axs[row, j].grid(axis='y', zorder=-1)
+                    axs[row, j].set_axisbelow(True)
+                    axs[row, j].legend()
+
             # ax0.set_title(f'Delta Histograms for Patient-ID {self.patient_id}', fontweight='bold')
             plt.tight_layout()
             plt.savefig(f'{output_dir}/{self.patient_id}_histograms.png', dpi=300)
             # plt.show()
-
-            print(f'''dx[mm]:\t\tmin={round(self.patient_delta_df['DELTA_X(mm)'].min(), 3)}\tmax={round(self.patient_delta_df['DELTA_X(mm)'].max(), 3)}\tmean={round(self.patient_delta_df['DELTA_X(mm)'].mean(), 3)}\tstd={round(self.patient_delta_df['DELTA_X(mm)'].std(), 3)}''')
-            print(f'''dy[mm]:\t\tmin={round(self.patient_delta_df['DELTA_Y(mm)'].min(), 3)}\tmax={round(self.patient_delta_df['DELTA_Y(mm)'].max(), 3)}\tmean={round(self.patient_delta_df['DELTA_Y(mm)'].mean(), 3)}\tstd={round(self.patient_delta_df['DELTA_Y(mm)'].std(), 3)}''')
-            print(f'''dD[MU]:\t\tmin={round(self.patient_delta_df['DELTA_MU'].min(), 4)}\tmax={round(self.patient_delta_df['DELTA_MU'].max(), 4)}\tmean={round(self.patient_delta_df['DELTA_MU'].mean(), 4)}\tstd={round(self.patient_delta_df['DELTA_MU'].std(), 4)}''')
-            print(f'''dE[MeV]:\tmin={round(self.patient_delta_df['DELTA_E(MeV)'].min(), 4)}\tmax={round(self.patient_delta_df['DELTA_E(MeV)'].max(), 4)}\tmean={round(self.patient_delta_df['DELTA_E(MeV)'].mean(), 4)}\tstd={round(self.patient_delta_df['DELTA_E(MeV)'].std(), 4)}''')
 
         if choice == 2:  # gantry angle vs. delta(x,y)
             other_dfs = [pd.read_csv(os.path.join(self.df_destination, file), index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str}) for file in sorted(os.listdir(self.df_destination)) if file.__contains__('delta') and file.endswith('.csv')]
@@ -2181,7 +2212,9 @@ if __name__ == '__main__':
     for id in ponaqua_qualified:
         log = MachineLog(os.path.join(root_dir, id))
         log.prepare_dataframe()
-        log.prepare_deltaframe()
+        # log.prepare_deltaframe()
+        # log.delta_dependencies()
+        # log.plot_beam_layers()
     
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
