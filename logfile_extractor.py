@@ -353,7 +353,7 @@ class MachineLog():
                                 accumulated_charge = record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (record_file_df['DOSE_PRIM(C)'] != -10000.0), ['DOSE_PRIM(C)']].abs().sum().iloc[0]
                                 
                                 # drop unusable rows AFTER charge extraction
-                                record_file_df.drop(record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (record_file_df['X_POSITION(mm)'] == -10000.0) & (record_file_df['Y_POSITION(mm)'] == -10000.0)].index, inplace=True)  # drop unusable rows for current submap
+                                record_file_df.drop(record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & ((record_file_df['X_POSITION(mm)'] == -10000.0) | (record_file_df['Y_POSITION(mm)'] == -10000.0))].index, inplace=True)  # drop unusable rows for current submap
                                 
                                 # average over all spot entries for most accurate position/shape (recommended by IBA)                                
                                 mean_xpos, mean_ypos = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POSITION(mm)']].mean().iloc[0], record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POSITION(mm)']].mean().iloc[0]
@@ -1401,11 +1401,11 @@ class MachineLog():
                             
                             if dropped > 1:
                                 print(f'Dropped {dropped} spots | fx-ID {fx_id} | beam-ID {beam_id} | layer-ID {layer_id}')
-                                plt.plot(*zip(*plan_xy), marker='x', ls='-', color='tab:blue', label='plan')
-                                plt.plot(*zip(*log_xy), marker='o', ls='--', color='tab:grey', label='log')
-                                plt.plot(*zip(*log_xy_sorted), marker='o', ls='-', color='black', label='sorted')
-                                plt.legend()
-                                plt.show()
+                                # plt.plot(*zip(*plan_xy), marker='x', ls='-', color='tab:blue', label='plan')
+                                # plt.plot(*zip(*log_xy), marker='o', ls='--', color='tab:grey', label='log')
+                                # plt.plot(*zip(*log_xy_sorted), marker='o', ls='-', color='black', label='sorted')
+                                # plt.legend()
+                                # plt.show()
                                 print(f'  /!\ Log beam {beam_id} spots do not match plan beam {beam_ds.BeamName}')
 
                     # generate new dataframe 
@@ -2212,7 +2212,7 @@ if __name__ == '__main__':
     for id in ponaqua_qualified:
         log = MachineLog(os.path.join(root_dir, id))
         log.prepare_dataframe()
-        # log.prepare_deltaframe()
+        log.prepare_deltaframe()
         # log.delta_dependencies()
         # log.plot_beam_layers()
     
