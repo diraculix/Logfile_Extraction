@@ -316,11 +316,9 @@ class MachineLog():
                                         
                             try:
                                 record_file_df['TIME'] = pd.to_datetime(record_file_df['TIME'], dayfirst=True)  # datetime index --> chronological order
-                                record_file_df.index = record_file_df['TIME']                              
                                 charge_col = pd.Series(record_file_df['DOSE_PRIM(C)'])                          # ion dose [C], to be converted in MU
                                 record_file_df = record_file_df.loc[:, :'Y_POSITION(mm)']                       # slice dataframe, drop redundant columns
                                 record_file_df['DOSE_PRIM(C)'] = charge_col
-                                record_file_df.drop(columns=['TIME'], inplace=True)
                                 try:
                                     record_file_df.drop(record_file_df[record_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)  # if split record file, nothing serious
                                 except: pass
@@ -353,7 +351,8 @@ class MachineLog():
                                 accumulated_charge = record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (record_file_df['DOSE_PRIM(C)'] != -10000.0), ['DOSE_PRIM(C)']].abs().sum().iloc[0]
                                 
                                 # drop unusable rows AFTER charge extraction
-                                record_file_df.drop(record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & ((record_file_df['X_POSITION(mm)'] == -10000.0) | (record_file_df['Y_POSITION(mm)'] == -10000.0))].index, inplace=True)  # drop unusable rows for current submap
+                                submap_df = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap]
+                                record_file_df.drop(record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (submap_df['X_POSITION(mm)'] == -10000.0) & (submap_df['Y_POSITION(mm)'] == -10000.0)].index, inplace=True)  # drop unusable rows for current submap
                                 
                                 # average over all spot entries for most accurate position/shape (recommended by IBA)                                
                                 mean_xpos, mean_ypos = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POSITION(mm)']].mean().iloc[0], record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POSITION(mm)']].mean().iloc[0]
@@ -383,6 +382,9 @@ class MachineLog():
                             
                             record_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
                             record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entry for each spot
+                            record_file_df.index = record_file_df['TIME']  # change to datetime index AFTER filtering, timestamp is NOT unique!
+                            record_file_df.drop(columns=['TIME'], inplace=True)
+                            record_file_df.reindex()
 
                             # draw machine parameters from *map_specif*.csv
                             for specif_file in record_specifs:  
@@ -454,11 +456,9 @@ class MachineLog():
 
                             try:
                                 tuning_file_df['TIME'] = pd.to_datetime(tuning_file_df['TIME'], dayfirst=True)
-                                tuning_file_df.index = tuning_file_df['TIME']
                                 charge_col = pd.Series(tuning_file_df['DOSE_PRIM(C)'])
                                 tuning_file_df = tuning_file_df.loc[:, :'Y_POSITION(mm)']
                                 tuning_file_df['DOSE_PRIM(C)'] = charge_col
-                                tuning_file_df.drop(columns=['TIME'], inplace=True)
                                 try:
                                     tuning_file_df.drop(tuning_file_df[tuning_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)
                                 except: pass
@@ -480,6 +480,7 @@ class MachineLog():
                             current_spot_id = 0
                             tuning_file_df['SPOT_ID'] = 0
                             tuning_file_df.reindex()
+                            
                             while current_spot_submap <= tuning_file_df['SUBMAP_NUMBER'].max():
                                 tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['SPOT_ID']] = current_spot_id  # assign new column
                                 spot_drill_time = len(tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap]) * 0.25  # in [ms]
@@ -499,6 +500,8 @@ class MachineLog():
 
                             tuning_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
                             tuning_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entry for each spot
+                            tuning_file_df.index = tuning_file_df['TIME']
+                            tuning_file_df.drop(columns=['TIME'], inplace=True)
                             
                             for specif_file in tuning_specifs:
                                 if int(specif_file.split('_')[2].split('_')[0]) == layer_id:
@@ -738,9 +741,7 @@ class MachineLog():
                                         
                             try:
                                 record_file_df['TIME'] = pd.to_datetime(record_file_df['TIME'], dayfirst=True)     # datetime index --> chronological order
-                                record_file_df.index = record_file_df['TIME']                              
                                 record_file_df = record_file_df.loc[:, :'Y_POSITION(mm)']           # slice dataframe, drop redundant columns
-                                record_file_df.drop(columns=['TIME'], inplace=True)
                                 try:
                                     record_file_df.drop(record_file_df[record_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)
                                 except:
@@ -762,7 +763,8 @@ class MachineLog():
                                 record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap, ['Y_WID_IC23(mm)']] = submap_df['Y_WIDTH(mm)'].mean()
 
                             record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entries for each spot (most accurate)
-                            
+                            record_file_df.index = record_file_df['TIME']   
+                            record_file_df.drop(columns=['TIME'], inplace=True)
 
                             if not len(record_file_df[['X_POSITION(mm)', 'Y_POSITION(mm)']].drop_duplicates()) in qa_spots:
                                 continue
@@ -1581,26 +1583,31 @@ class MachineLog():
             for row, beam in enumerate(beams):
                 beam_df = self.patient_delta_df.loc[self.patient_delta_df['BEAM_ID'] == beam]
 
-                axs[row, 0].hist(beam_df['DELTA_X(mm)'], bins=bin_xy, alpha=0.7, label=f'''$\mu_x =$ {beam_df['DELTA_X(mm)'].mean():.3f} mm\n$\sigma_x =$ {beam_df['DELTA_X(mm)'].std():.5f} mm''')
+                axs[row, 0].hist(beam_df['DELTA_X(mm)'], bins=bin_xy, alpha=0.7, label=f'''$\mu_x =$ {beam_df['DELTA_X(mm)'].mean():.3f} mm\n$\sigma_x =$ {beam_df['DELTA_X(mm)'].std():.3f} mm''')
                 axs[row, 0].axvline(beam_df['DELTA_X(mm)'].mean(), ls='-', color='black', lw=0.5)
                 axs[row, 0].axvline(0.0, ls='--', color='black', lw=0.5)
                 axs[row, 0].set_xlabel('$\Delta x$ to plan [mm]')
+                axs[row, 0].set_ylabel(f'Beam {beam} - {beam_df.GANTRY_ANGLE.iloc[0]}°')
+                axs[row, 0].set_yscale('log')
                 # axs[row, 0].set_xlim(-2, 2)
-                axs[row, 1].hist(beam_df['DELTA_Y(mm)'], bins=bin_xy, alpha=0.7, label=f'''$\mu_y =$ {beam_df['DELTA_Y(mm)'].mean():.3f} mm\n$\sigma_y =$ {beam_df['DELTA_Y(mm)'].std():.5f} mm''')
+                axs[row, 1].hist(beam_df['DELTA_Y(mm)'], bins=bin_xy, alpha=0.7, label=f'''$\mu_y =$ {beam_df['DELTA_Y(mm)'].mean():.3f} mm\n$\sigma_y =$ {beam_df['DELTA_Y(mm)'].std():.3f} mm''')
                 axs[row, 1].axvline(beam_df['DELTA_Y(mm)'].mean(), ls='-', color='black', lw=0.5)
                 axs[row, 1].axvline(0.0, ls='--', color='black', lw=0.5)
                 axs[row, 1].set_xlabel('$\Delta y$ to plan [mm]')
+                axs[row, 1].set_yscale('log')
                 # axs[row, 1].set_xlim(-2, 2)
-                axs[row, 2].hist(beam_df['DELTA_MU'], bins=bin_mu, color='tab:green', alpha=0.7, label=f'''$\mu_D =$ {beam_df['DELTA_MU'].mean():.3f} MU\n$\sigma_D =$ {beam_df['DELTA_MU'].std():.5f} MU''')
+                axs[row, 2].hist(beam_df['DELTA_MU'], bins=bin_mu, color='tab:green', alpha=0.7, label=f'''$\mu_D =$ {beam_df['DELTA_MU'].mean():.4f} MU\n$\sigma_D =$ {beam_df['DELTA_MU'].std():.4f} MU''')
                 axs[row, 2].axvline(beam_df['DELTA_MU'].mean(), ls='-', color='black', lw=0.5)
                 axs[row, 2].axvline(0.0, ls='--', color='black', lw=0.5)
                 axs[row, 2].set_xlabel('$\Delta D$ to plan [MU]')
+                axs[row, 2].set_yscale('log')
                 # axs[row, 2].set_xlim(-0.005, 0.005)
                 # axs[2].set_ylim(0, 30000)
-                axs[row, 3].hist(beam_df['DELTA_E(MeV)'].drop_duplicates(), bins=bin_e, color='tab:red', alpha=0.7, label=f'''$\mu_E =$ {beam_df['DELTA_E(MeV)'].mean():.3f} MeV\n$\sigma_E =$ {beam_df['DELTA_E(MeV)'].std():.5f} MeV''')
+                axs[row, 3].hist(beam_df['DELTA_E(MeV)'].drop_duplicates(), bins=bin_e, color='tab:red', alpha=0.7, label=f'''$\mu_E =$ {beam_df['DELTA_E(MeV)'].mean():.4f} MeV\n$\sigma_E =$ {beam_df['DELTA_E(MeV)'].std():.4f} MeV''')
                 axs[row, 3].axvline(beam_df['DELTA_E(MeV)'].mean(), ls='-', color='black', lw=0.5)
                 axs[row, 3].axvline(0.0, ls='--', color='black', lw=0.5)
                 axs[row, 3].set_xlabel('$\Delta E$ to plan [MeV]')
+                axs[row, 3].set_yscale('log')
                 # axs[row, 3].set_xlim(-0.04, 0.04)
 
                 print(f'>> BEAM {beam} <<')
@@ -1610,11 +1617,14 @@ class MachineLog():
                 print(f'''dE[MeV]:\tmin={round(beam_df['DELTA_E(MeV)'].min(), 4)}\tmax={round(beam_df['DELTA_E(MeV)'].max(), 4)}\tmean={round(beam_df['DELTA_E(MeV)'].mean(), 4)}\tstd={round(beam_df['DELTA_E(MeV)'].std(), 4)}''')
 
                 for j in range(4):
-                    axs[row, j].grid(axis='y', zorder=-1)
+                    if j == 3: which = 'both'
+                    else: which = 'major'
+                    axs[row, j].grid(which=which, axis='y', zorder=-1)
                     axs[row, j].set_axisbelow(True)
                     axs[row, j].legend()
 
             # ax0.set_title(f'Delta Histograms for Patient-ID {self.patient_id}', fontweight='bold')
+            plt.title(f'Log-file report for patient-ID {self.patient_id}', fontweight='bold')
             plt.tight_layout()
             plt.savefig(f'{output_dir}/{self.patient_id}_histograms.png', dpi=300)
             # plt.show()
@@ -2215,6 +2225,7 @@ if __name__ == '__main__':
         log.prepare_deltaframe()
         # log.delta_dependencies()
         # log.plot_beam_layers()
+        break
     
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
