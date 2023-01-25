@@ -179,20 +179,20 @@ class MachineLog():
             if re_init != 'y':
                 return None
         
-        try:  # set up function for gtr-angle-dependent spot position correction (based on measured QA data from 2017-2022)
-            qa_df = pd.read_csv(f'{output_dir}/QA_angular_dependence.csv')
-            qa_angles = qa_df.GANTRY_ANGLE.to_list()
-            qa_angles.append(360.)
-            qa_median_x = qa_df['DELTA_X[mm]'].to_list()
-            qa_median_x.append(qa_median_x[0])
-            qa_median_y = qa_df['DELTA_Y[mm]'].to_list()
-            qa_median_y.append(qa_median_y[0])
-            correct_x = fit_sin(qa_angles, qa_median_x)  # correct_x/y are functions
-            correct_y = fit_sin(qa_angles, qa_median_y)
-        except FileNotFoundError:
-            '  /!\ Spot position correction data not found, no funciton will be applied..'
-            def temp(x): return x
-            correct_x = temp, correct_y = temp  # <-- function
+        # try:  # set up function for gtr-angle-dependent spot position correction (based on measured QA data from 2017-2022)
+        #     qa_df = pd.read_csv(f'{output_dir}/QA_angular_dependence.csv')
+        #     qa_angles = qa_df.GANTRY_ANGLE.to_list()
+        #     qa_angles.append(360.)
+        #     qa_median_x = qa_df['DELTA_X[mm]'].to_list()
+        #     qa_median_x.append(qa_median_x[0])
+        #     qa_median_y = qa_df['DELTA_Y[mm]'].to_list()
+        #     qa_median_y.append(qa_median_y[0])
+        #     correct_x = fit_sin(qa_angles, qa_median_x)  # correct_x/y are functions
+        #     correct_y = fit_sin(qa_angles, qa_median_y)
+        # except FileNotFoundError:
+        #     print('  /!\ Spot position correction data not found, no funciton will be applied..')
+        #     def temp(x): return x
+        #     correct_x = temp, correct_y = temp  # <-- function
 
         # sweep over all fractions and beams, extract information
         print(f'Initializing dataframe for patient-ID {self.patient_id}..')
@@ -352,7 +352,7 @@ class MachineLog():
                                 
                                 # drop unusable rows AFTER charge extraction
                                 submap_df = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap]
-                                record_file_df.drop(record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (submap_df['X_POSITION(mm)'] == -10000.0) & (submap_df['Y_POSITION(mm)'] == -10000.0)].index, inplace=True)  # drop unusable rows for current submap
+                                record_file_df.drop(record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & ((record_file_df['X_POSITION(mm)'] == -10000.0) | (record_file_df['Y_POSITION(mm)'] == -10000.0))].index, inplace=True)  # drop unusable rows for current submap
                                 
                                 # average over all spot entries for most accurate position/shape (recommended by IBA)                                
                                 mean_xpos, mean_ypos = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POSITION(mm)']].mean().iloc[0], record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POSITION(mm)']].mean().iloc[0]
@@ -404,8 +404,8 @@ class MachineLog():
                             # coordinate system transform IBA <-> RayStation/ISO (x <-> y)
                             record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
                             record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
-                            record_file_df['X_POSITION_CORR(mm)'] = record_file_df['X_POSITION(mm)'] - correct_x(gantry_angle)  # if correction data is present (experimental)
-                            record_file_df['Y_POSITION_CORR(mm)'] = record_file_df['Y_POSITION(mm)'] - correct_y(gantry_angle)
+                            # record_file_df['X_POSITION_CORR(mm)'] = record_file_df['X_POSITION(mm)'] - correct_x(gantry_angle)  # if correction data is present (experimental)
+                            # record_file_df['Y_POSITION_CORR(mm)'] = record_file_df['Y_POSITION(mm)'] - correct_y(gantry_angle)
                             record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID_IC23(mm)']].apply(map_spot_width, args=(sad_x, ictoiso_x))
                             record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID_IC23(mm)']].apply(map_spot_width, args=(sad_y, ictoiso_y))
                             # record_file_df['SQDIST_TO_ISO(mm)'] = np.square(record_file_df['X_POSITION(mm)']) + np.square(record_file_df['Y_POSITION(mm)'])
@@ -891,6 +891,9 @@ class MachineLog():
         # auto-location of plan DICOM    
         delivered = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\DeliveredPlans'
         plan_dir = os.path.join(delivered, self.patient_id)
+        if not os.path.isdir(delivered):
+            plan_dir = r'/home/luke/Logfile_Extraction/1676348/DeliveredPlans'        
+        
         for file in os.listdir(plan_dir):
             if file.endswith('.dcm'):
                 ds = pydicom.read_file(os.path.join(plan_dir, file))
@@ -1103,7 +1106,7 @@ class MachineLog():
         beam_id = str(beam_list[key - 1])
         
         scope_record_df = self.patient_record_df.loc[self.patient_record_df['BEAM_ID'] == beam_id]  # slice currently needed portion from patient df
-        scope_record_df = scope_record_df.loc[scope_record_df['FRACTION_ID'] == scope_record_df['FRACTION_ID'].max()]  # analyze only beam from last fraction
+        scope_record_df = scope_record_df.loc[scope_record_df['FRACTION_ID'] == scope_record_df['FRACTION_ID'].max()]  # analyze only last irradiated selected beam
         scope_tuning_df = self.patient_tuning_df.loc[self.patient_tuning_df['BEAM_ID'] == beam_id]
         scope_tuning_df = scope_tuning_df.loc[scope_tuning_df['FRACTION_ID'] == scope_record_df['FRACTION_ID'].max()]
         print('Selected beam is:', beam_id)
@@ -2194,10 +2197,11 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
+    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
+    root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
     # erroneous = [1230180, 1625909, 1627648, 1660835, 1698000, 1700535]
     # for errid in erroneous:
     #     dir = os.path.join(root_dir, str(errid))
@@ -2218,14 +2222,14 @@ if __name__ == '__main__':
     #         continue
 
     #     log.prepare_dataframe()
-    ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
-    for id in ponaqua_qualified:
-        log = MachineLog(os.path.join(root_dir, id))
-        log.prepare_dataframe()
-        log.prepare_deltaframe()
-        # log.delta_dependencies()
-        # log.plot_beam_layers()
-        break
+    # ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
+    # for id in ponaqua_qualified:
+    #     log = MachineLog(os.path.join(root_dir, id))
+    #     log.prepare_dataframe()
+    #     log.prepare_deltaframe()
+    #     # log.delta_dependencies()
+    #     # log.plot_beam_layers()
+    #     break
     
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
@@ -2241,7 +2245,7 @@ if __name__ == '__main__':
     #     # log.prepare_deltaframe()
     #     # log.delta_dependencies()
 
-    # log = MachineLog(root_dir)
+    log = MachineLog(root_dir)
     # df = log.patient_record_df
     # for fx in log.fraction_list:
     #     control = df.loc[(df['FRACTION_ID'] == fx) & (df['BEAM_ID'] == '2')]
@@ -2255,10 +2259,9 @@ if __name__ == '__main__':
     #     plt.show()
 
     # log.prepare_dataframe()
-    # log.plot_beam_layers()
+    log.plot_beam_layers()
     # log.prepare_qa_dataframe()
     # log.prepare_deltaframe()
-    # log.beam_histos()
     # log.delta_dependencies()
     # log.fractional_evolution(all=True)
     # log.plan_creator(fraction='all', mode='all')
