@@ -356,7 +356,7 @@ class MachineLog():
                                 # average over all spot entries for most accurate position/shape (recommended by IBA)                                
                                 mean_xpos, mean_ypos = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POSITION(mm)']].mean().iloc[0], record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POSITION(mm)']].mean().iloc[0]
                                 if current_spot_id != 0:
-                                    if abs(mean_xpos - previous_xpos) < 0.5 and abs(mean_ypos - previous_ypos) < 0.5:  # custom thresholds for split spots (in case of very high MU)
+                                    if abs(mean_xpos - previous_xpos) < 1 and abs(mean_ypos - previous_ypos) < 1:  # proximity check for split spots (in case of high MU), custom tolerance 1mm
                                         print(f'  /!\ Split spot detected in layer-ID {layer_id}, merging..')
                                         split_spot = True
 
@@ -382,7 +382,7 @@ class MachineLog():
                             record_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
                             record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entry for each spot
                             record_file_df.index = record_file_df['TIME']  # change to datetime index AFTER filtering, timestamp is NOT unique!
-                            record_file_df.drop(columns=['TIME'], inplace=True)
+                            record_file_df.drop(columns=['TIME', 'SUBMAP_NUMBER'], inplace=True)
                             record_file_df.reindex()
 
                             # draw machine parameters from *map_specif*.csv
@@ -413,6 +413,22 @@ class MachineLog():
                             record_file_df['CORRECTION_FACTOR'] = correction_factor
                             record_file_df['MU'] = record_file_df[['CHARGE(C)']].apply(map_spot_mu, args=(correction_factor, charge_per_mu))
                             record_file_df.reindex()  # make sure modified layer df is consistent with indexing
+
+                            # in the case of split record file AND last spot split across two files
+                            if len(to_do_layers) > 0:
+                                previous_record_file_df = to_do_layers[-1]
+                                prev_x_last, prev_y_last = previous_record_file_df['X_POSITION(mm)'].iloc[-1], previous_record_file_df['Y_POSITION(mm)'].iloc[-1]
+                                this_x_first, this_y_first = record_file_df['X_POSITION(mm)'].iloc[0], record_file_df['Y_POSITION(mm)'].iloc[0]
+                                if abs(this_x_first - prev_x_last) < 1 and abs(this_y_first - prev_y_last) < 1:  # proximity check to last spot entry of previous file
+                                    print(f'''  /!\ Spot-ID {previous_record_file_df['SPOT_ID'].max()} of layer-ID {layer_id} split over 2 files, merging..''')
+                                    this_dose, this_drill = record_file_df['MU'].iloc[0], record_file_df['DRILL_TIME(ms)'].iloc[0]
+                                    previous_record_file_df.at[previous_record_file_df.index[-1], 'MU'] += this_dose  # add dose and time to previous
+                                    previous_record_file_df.at[previous_record_file_df.index[-1], 'DRILL_TIME(ms)'] += this_drill
+                                    previous_record_file_df = previous_record_file_df  # modify element in queue
+                                    to_do_layers[-1] = previous_record_file_df
+                                    record_file_df = record_file_df.iloc[1:]  # drop first entry of current file
+                                    record_file_df['SPOT_ID'] -= 1  # consequence: reduce running spot-id of current file
+
                             to_do_layers.append(record_file_df)
                 
                     # same procedure for all tuning spots (max. 3 per layer possible)
@@ -500,7 +516,7 @@ class MachineLog():
                             tuning_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
                             tuning_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entry for each spot
                             tuning_file_df.index = tuning_file_df['TIME']
-                            tuning_file_df.drop(columns=['TIME'], inplace=True)
+                            tuning_file_df.drop(columns=['TIME', 'SUBMAP_NUMBER'], inplace=True)
                             
                             for specif_file in tuning_specifs:
                                 if int(specif_file.split('_')[2].split('_')[0]) == layer_id:
@@ -547,7 +563,6 @@ class MachineLog():
                         layer_df['PRESSURE(hPa)'] = pressure
                         layer_df['FRACTION_ID'] = fraction_id
                         layer_df['PATIENT_ID'] = self.patient_id
-                        layer_df.drop(columns=['SUBMAP_NUMBER'], inplace=True)
                         layer_df = layer_df[~layer_df.index.duplicated(keep='first')]
                     else:
                         print(f'  /!\ No record for layer-ID {layer_id} in beam {beam_id}, only spot replaced by tuning')
@@ -563,7 +578,6 @@ class MachineLog():
                         tuning_df['PRESSURE(hPa)'] = pressure
                         tuning_df['FRACTION_ID'] = fraction_id
                         tuning_df['PATIENT_ID'] = self.patient_id
-                        tuning_df.drop(columns=['SUBMAP_NUMBER'], inplace=True)
                         tuning_df = tuning_df[~tuning_df.index.duplicated(keep='first')]
                     else:
                         print(f'  /!\ No tunings found for layer-ID {layer_id} and beam {beam_id}, skipping this layer..')
@@ -1980,7 +1994,7 @@ class MachineLog():
             new_sop_uid = '.'.join(sop_uid)
             ds.SOPInstanceUID = new_sop_uid
             if not ds.RTPlanName.__contains__('log'):
-                ds.RTPlanName += f'_log_{mode}'
+                ds.RTPlanName += f'_LOG_{fx_id}_{mode}'
             ds.RTPlanLabel = ds.RTPlanName
             ds.ReferringPhysicianName = 'Wolter^Lukas'
             ds.ApprovalStatus = 'UNAPPROVED'
@@ -2192,8 +2206,8 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
-    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
+    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
     # root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
@@ -2204,13 +2218,14 @@ if __name__ == '__main__':
     #     log.prepare_dataframe()
     #     log.prepare_dataframe()
 
-    # ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
-    # for id in ponaqua_qualified:
-    #     log = MachineLog(os.path.join(root_dir, id))
-    #     log.prepare_dataframe()
-    #     log.prepare_deltaframe()
-    #     # log.delta_dependencies()
-    #     # log.plot_beam_layers()
+    ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
+    for id in ponaqua_qualified:
+        log = MachineLog(os.path.join(root_dir, id))
+        # df = log.patient_record_df.loc[(log.patient_record_df['FRACTION_ID'] == '20210617') & (log.patient_record_df['BEAM_ID'] == '2') & (log.patient_record_df['LAYER_ID'] == 5)]
+        log.prepare_dataframe()
+        log.prepare_deltaframe()
+        # log.delta_dependencies()
+        # log.plot_beam_layers()
     
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
@@ -2226,7 +2241,7 @@ if __name__ == '__main__':
     #     # log.prepare_deltaframe()
     #     # log.delta_dependencies()
 
-    log = MachineLog(root_dir)
+    # log = MachineLog(root_dir)
     # df = log.patient_record_df
     # for fx in log.fraction_list:
     #     control = df.loc[(df['FRACTION_ID'] == fx) & (df['BEAM_ID'] == '2')]
@@ -2241,7 +2256,7 @@ if __name__ == '__main__':
 
     # log.prepare_dataframe()
     # log.plot_beam_layers()
-    log.prepare_qa_dataframe()
+    # log.prepare_qa_dataframe()
     # log.prepare_deltaframe()
     # log.delta_dependencies()
     # log.fractional_evolution(all=True)
