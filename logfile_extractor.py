@@ -351,7 +351,6 @@ class MachineLog():
                                 accumulated_charge = record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (record_file_df['DOSE_PRIM(C)'] != -10000.0), ['DOSE_PRIM(C)']].abs().sum().iloc[0]
                                 
                                 # drop unusable rows AFTER charge extraction
-                                submap_df = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap]
                                 record_file_df.drop(record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & ((record_file_df['X_POSITION(mm)'] == -10000.0) | (record_file_df['Y_POSITION(mm)'] == -10000.0))].index, inplace=True)  # drop unusable rows for current submap
                                 
                                 # average over all spot entries for most accurate position/shape (recommended by IBA)                                
@@ -489,7 +488,7 @@ class MachineLog():
                                 tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['CHARGE(C)']] = accumulated_charge  # accumulate charge released per spot
                                 
                                 # average over all spot entries for most accurate position/shape (recommended by IBA)
-                                tuning_file_df = tuning_file_df.loc[(tuning_file_df['X_POSITION(mm)'] != -10000.0) & (tuning_file_df['Y_POSITION(mm)'] != -10000.0)]  # drop unusable rows
+                                tuning_file_df.drop(tuning_file_df.loc[(tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap) & ((tuning_file_df['X_POSITION(mm)'] == -10000.0) | (tuning_file_df['Y_POSITION(mm)'] == -10000.0))].index, inplace=True)  # drop unusable rows for current submap
                                 tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POS_IC23(mm)']] = tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POSITION(mm)']].mean().iloc[0]
                                 tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POS_IC23(mm)']] = tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POSITION(mm)']].mean().iloc[0]
                                 tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_WID_IC23(mm)']] = tuning_file_df.loc[tuning_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_WIDTH(mm)']].mean().iloc[0]
@@ -673,12 +672,7 @@ class MachineLog():
                     for line in beam_file.readlines():
                         if line.__contains__('GantryAngle'):
                             gantry_angle = float(line.split('>')[1].split('<')[0])
-                        elif line.__contains__('pressure'):
-                            pressure = float(line.split(',')[-1])
-                        elif line.__contains__('temperature'):
-                            temperature = float(line.split(',')[-1])
-                        elif line.__contains__('doseCorrectionFactor'):
-                            chamber_correction = float(line.split(',')[-1])
+                            break
 
                     beam_file.close()
                 
@@ -806,8 +800,8 @@ class MachineLog():
                         layer_df['FRACTION_ID'] = fraction_id
                         layer_df['BEAM_ID'] = beam_id
                         layer_df['GANTRY_ANGLE'] = gantry_angle
-                        layer_df['TEMPERATURE(K)'] = temperature
-                        layer_df['PRESSURE(hPa)'] = pressure
+                        # layer_df['TEMPERATURE(K)'] = temperature
+                        # layer_df['PRESSURE(hPa)'] = pressure
                         layer_df.drop(columns=['SUBMAP_NUMBER'], inplace=True)
                         layer_df = layer_df[~layer_df.index.duplicated(keep='first')]
                     else:
@@ -1136,25 +1130,25 @@ class MachineLog():
             tuning_points_log = [tuple for tuple in zip(layer_tuning_df['X_POSITION(mm)'].to_list(), layer_tuning_df['Y_POSITION(mm)'].to_list())]
             spot_points_sorted = [spot_points_log[beam_sorting_dict[layer_id][i]] for i in range(len(spot_points_log))]
             
-            if beam_id == '2' and layer_id == 9:
-                fig2, ax2 = plt.subplots(figsize=(6, 6))
-                ax2.plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', label='Planned')
-                # ax2.plot(*zip(*spot_points_log), marker='o', markerfacecolor='None', linestyle='--', color='grey', label='Log-file original')
-                ax2.plot(*zip(*spot_points_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', label='Log-file')
-                ax2.plot(*zip(*tuning_points_log), marker='o', markerfacecolor='None', linestyle='None', color='limegreen', label='Tuning spot(s)')
-                # ax2.annotate(f'Beam {beam_id} | Layer #{str(layer_id + 1).zfill(2)} | $\Delta$ = {abs(len(plan_x_positions) - len(x_positions))}', xy=(1.0, 1.0), xycoords='axes points')
-                ax2.set_xlabel('Spot $x$-position @ISO [mm]')
-                ax2.set_ylabel('Spot $y$-position @ISO [mm]')
-                ax2.legend()
-                fig2.tight_layout()
-                fig2.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_spotmap_show.png', dpi=600)
-                plt.show()
+            # if beam_id == '2' and layer_id == 9:
+            #     fig2, ax2 = plt.subplots(figsize=(6, 6))
+            #     ax2.plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', label='Planned')
+            #     # ax2.plot(*zip(*spot_points_log), marker='o', markerfacecolor='None', linestyle='--', color='grey', label='Log-file original')
+            #     ax2.plot(*zip(*spot_points_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', label='Log-file')
+            #     ax2.plot(*zip(*tuning_points_log), marker='o', markerfacecolor='None', linestyle='None', color='limegreen', label='Tuning spot(s)')
+            #     # ax2.annotate(f'Beam {beam_id} | Layer #{str(layer_id + 1).zfill(2)} | $\Delta$ = {abs(len(plan_x_positions) - len(x_positions))}', xy=(1.0, 1.0), xycoords='axes points')
+            #     ax2.set_xlabel('Spot $x$-position @ISO [mm]')
+            #     ax2.set_ylabel('Spot $y$-position @ISO [mm]')
+            #     ax2.legend()
+            #     fig2.tight_layout()
+            #     fig2.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_spotmap_show.png', dpi=600)
+            #     plt.show()
                
-                return None
+            #     return None
 
             axs[layer_id].plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Planned')
             axs[layer_id].plot(*zip(*spot_points_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Log-file sorted')
-            axs[layer_id].plot(*zip(*spot_points_log), marker='o', markerfacecolor='None', linestyle='--', color='black', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Log-file original')
+            # axs[layer_id].plot(*zip(*spot_points_log), marker='o', markerfacecolor='None', linestyle='--', color='black', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Log-file original')
             axs[layer_id].plot(*zip(*tuning_points_log), marker='o', markerfacecolor='None', linestyle='None', markersize=2.0, markeredgewidth=0.2, color='limegreen', label='Tuning spot(s)')
             axs[layer_id].annotate(f'Layer #{str(layer_id + 1).zfill(2)} | $\Delta$ = {abs(len(plan_x_positions) - len(spot_points_log))}', xy=(1.0, 1.0), xycoords='axes points', fontsize=8)
             
@@ -1320,6 +1314,7 @@ class MachineLog():
                 if re_init == 'y':
                     break
                 else:
+                    self.patient_delta_df = pd.read_csv(os.path.join(self.df_destination, df_file), index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
                     return None
 
         # initialize deltaframe
@@ -1454,7 +1449,7 @@ class MachineLog():
         print(f'''  ..Writing deltaframe to '{self.df_destination}' as .CSV.. ''')
         while True:   
             try:
-                self.patient_delta_df.to_csv(f'patient_{self.patient_id}_plan-log_delta.csv')
+                self.patient_delta_df.to_csv(f'patient_{self.patient_id}_log-plan_delta.csv')
                 break
             except PermissionError:
                 input('  Permission denied, close target file and press ENTER.. ')
@@ -2198,30 +2193,17 @@ class MachineLog():
 
 if __name__ == '__main__':
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
-    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
-    root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
+    # root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
     # erroneous = [1230180, 1625909, 1627648, 1660835, 1698000, 1700535]
     # for errid in erroneous:
     #     dir = os.path.join(root_dir, str(errid))
     #     log = MachineLog(dir)
     #     log.prepare_dataframe()
-
-    # root = Tk()
-    # root_dir = filedialog.askdirectory()
-    # root.destroy()
-    # import time
-    # for i, patient_id in enumerate(os.listdir(root_dir)):
-    #     if patient_id not in ['1689518', '1714496', '442226', '645070']:
-    #         continue
-    #     print(f'\n...STARTING PATIENT {patient_id} ({i + 1}/{len(os.listdir(root_dir))})...\n')
-    #     try: log = MachineLog(os.path.join(root_dir, patient_id))
-    #     except: 
-    #         print(f'__init__() failed for patient-ID {patient_id}, DS patient?')
-    #         continue
-
     #     log.prepare_dataframe()
+
     # ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
     # for id in ponaqua_qualified:
     #     log = MachineLog(os.path.join(root_dir, id))
@@ -2229,7 +2211,6 @@ if __name__ == '__main__':
     #     log.prepare_deltaframe()
     #     # log.delta_dependencies()
     #     # log.plot_beam_layers()
-    #     break
     
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
@@ -2259,8 +2240,8 @@ if __name__ == '__main__':
     #     plt.show()
 
     # log.prepare_dataframe()
-    log.plot_beam_layers()
-    # log.prepare_qa_dataframe()
+    # log.plot_beam_layers()
+    log.prepare_qa_dataframe()
     # log.prepare_deltaframe()
     # log.delta_dependencies()
     # log.fractional_evolution(all=True)
