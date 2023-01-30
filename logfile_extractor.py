@@ -266,7 +266,7 @@ class MachineLog():
 
                     beam_config.close()
                 
-                # Source: IBA Particle Therapy GmbH 08/22 (JBO), universal nozzle WET polynomial coefficients
+                # Source: IBA Particle Therapy GmbH 08/22 (JBO), UPTD universal nozzle WET polynomial coefficients
                 iba_gtr2_poly = [0.001684756748152, -0.00490089228886989, 0.561372013469097, 3.46404838890297]
 
                 # read in irradiation records layer-wise, process, then append to final dataframe
@@ -330,7 +330,7 @@ class MachineLog():
                                 layer_exceptions.append(layer_id)
                                 continue
                             
-                            if record_file_df.empty:  # in case of split low-populated record file
+                            if record_file_df.loc[(record_file_df['X_POSITION(mm)'] != -10000.) & (record_file_df['Y_POSITION(mm)'] != -10000.)].empty:  # in case of split record file containing only invalid entries
                                 no_exceptions = False
                                 layer_exceptions.append(layer_id)
                                 continue
@@ -414,18 +414,21 @@ class MachineLog():
                             record_file_df['MU'] = record_file_df[['CHARGE(C)']].apply(map_spot_mu, args=(correction_factor, charge_per_mu))
                             record_file_df.reindex()  # make sure modified layer df is consistent with indexing
 
-                            # in the case of split record file AND last spot split across two files
+                            # in the case of split record file
                             if len(to_do_layers) > 0:
                                 previous_record_file_df = to_do_layers[-1]
                                 prev_x_last, prev_y_last = previous_record_file_df['X_POSITION(mm)'].iloc[-1], previous_record_file_df['Y_POSITION(mm)'].iloc[-1]
                                 this_x_first, this_y_first = record_file_df['X_POSITION(mm)'].iloc[0], record_file_df['Y_POSITION(mm)'].iloc[0]
-                                if abs(this_x_first - prev_x_last) < 1 and abs(this_y_first - prev_y_last) < 1:  # proximity check to last spot entry of previous file
+
+                                # check proximity to last spot entry of previous file (if same coordinates, spot is split over 2 files)
+                                if abs(this_x_first - prev_x_last) < 1 and abs(this_y_first - prev_y_last) < 1:  
                                     print(f'''  /!\ Spot-ID {previous_record_file_df['SPOT_ID'].max()} of layer-ID {layer_id} split over 2 files, merging..''')
-                                    this_dose, this_drill = record_file_df['MU'].iloc[0], record_file_df['DRILL_TIME(ms)'].iloc[0]
-                                    previous_record_file_df.at[previous_record_file_df.index[-1], 'MU'] += this_dose  # add dose and time to previous
+                                    this_charge, this_dose, this_drill = record_file_df['CHARGE(C)'].iloc[0] ,record_file_df['MU'].iloc[0], record_file_df['DRILL_TIME(ms)'].iloc[0]
+                                    # add dose and time to previous
+                                    previous_record_file_df.at[previous_record_file_df.index[-1], 'CHARGE(C)'] += this_charge
+                                    previous_record_file_df.at[previous_record_file_df.index[-1], 'MU'] += this_dose  
                                     previous_record_file_df.at[previous_record_file_df.index[-1], 'DRILL_TIME(ms)'] += this_drill
-                                    previous_record_file_df = previous_record_file_df  # modify element in queue
-                                    to_do_layers[-1] = previous_record_file_df
+                                    to_do_layers[-1] = previous_record_file_df  # modify element in queue
                                     record_file_df = record_file_df.iloc[1:]  # drop first entry of current file
                                     record_file_df['SPOT_ID'] -= 1  # consequence: reduce running spot-id of current file
 
