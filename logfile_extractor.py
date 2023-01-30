@@ -432,8 +432,8 @@ class MachineLog():
                                     record_file_df = record_file_df.iloc[1:]  # drop first entry of current file
                                     record_file_df['SPOT_ID'] -= 1  # consequence: reduce running spot-id of current file
 
-                            to_do_layers.append(record_file_df)
-                
+                            if not record_file_df.empty: to_do_layers.append(record_file_df)  # if only spot was deleted in previous step
+                    
                     # same procedure for all tuning spots (max. 3 per layer possible)
                     for tune_idx, tuning_file in enumerate(tunings): 
                         if int(tuning_file.split('_')[2]) == layer_id:
@@ -994,7 +994,7 @@ class MachineLog():
                 
             ds = pydicom.read_file(plan_dcm)
             for beam in ds.IonBeamSequence:  # check only gtr-angle and number of layers, omit energy check
-                if float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle and len(beam.IonControlPointSequence) == n_layers * 2:
+                if float(beam.IonControlPointSequence[0].GantryAngle) == gtr_angle:
                     beam_ds = beam
                     found = True
         
@@ -1017,7 +1017,7 @@ class MachineLog():
         sorting_dict = {lid:{} for lid in range(n_layers)}  # initialize empty dictionary
 
         # use dicom_finder() to draw plan and beam
-        plan_dcm, beam_ds = self.dicom_finder(fraction_id, beam_id)
+        plan_dcm, beam_ds = self.dicom_finder(fraction_id, beam_id, verbose=True)
         
         # start sorting procedure
         print(f'  Sorting spots for beam-ID {beam_id}..')
@@ -1085,7 +1085,7 @@ class MachineLog():
     '''
     Plot all spotmaps (layers) of last fraction of selected beam
     '''
-    def plot_beam_layers(self):     
+    def plot_beam_layers(self):
         # For all layers and last fraction of selected beam:
         # derive scatter plot of (x,y)-positions from logfile, 
                                     # compare vs. planned positions extracted from RP*.dcm
@@ -1123,7 +1123,7 @@ class MachineLog():
         print('Selected beam is:', beam_id)
 
         print('\nGenerating layer plot..')
-        plan_dcm, beam_ds = self.dicom_finder(fraction_id=scope_record_df['FRACTION_ID'].iloc[0], beam_id=beam_id, verbose=False)
+        plan_dcm, beam_ds = self.dicom_finder(fraction_id=scope_record_df['FRACTION_ID'].iloc[0], beam_id=beam_id, verbose=True)
         beam_sorting_dict = self.spot_sorter(fraction_id=scope_record_df['FRACTION_ID'].iloc[0], beam_id=beam_id)
 
         fig, axs = plt.subplots(6, 8, sharex=True, sharey=True, figsize=(24, 24 * 6/8), dpi=150)  # initiate matrix-like layer plot
@@ -1136,6 +1136,7 @@ class MachineLog():
             layer_tuning_df = scope_tuning_df.loc[scope_tuning_df['LAYER_ID'] == layer_id]
             dcm_layer = beam_ds.IonControlPointSequence[layer_id * 2]
             plan_spotmap = dcm_layer.ScanSpotPositionMap
+            plan_mu = dcm_layer.ScanSpotMetersetWeights
             plan_x_positions, plan_y_positions = [], []
             for i, coord in enumerate(plan_spotmap):
                 if i % 2 == 0:
@@ -1144,8 +1145,11 @@ class MachineLog():
                     plan_y_positions.append(coord)
             
             spot_points_log = [tuple for tuple in zip(layer_spot_df['X_POSITION(mm)'].to_list(), layer_spot_df['Y_POSITION(mm)'].to_list())]
+            spot_mu_log = layer_spot_df['MU'].to_list()
             tuning_points_log = [tuple for tuple in zip(layer_tuning_df['X_POSITION(mm)'].to_list(), layer_tuning_df['Y_POSITION(mm)'].to_list())]
             spot_points_sorted = [spot_points_log[beam_sorting_dict[layer_id][i]] for i in range(len(spot_points_log))]
+            spot_mu_sorted = [spot_mu_log[beam_sorting_dict[layer_id][i]] for i in range(len(spot_mu_log))]
+            spot_mu_delta = [spot_mu_sorted[i] - plan_mu[i] for i in range(len(spot_mu_sorted))]
             
             # if beam_id == '2' and layer_id == 9:
             #     fig2, ax2 = plt.subplots(figsize=(6, 6))
@@ -1164,7 +1168,8 @@ class MachineLog():
             #     return None
 
             axs[layer_id].plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Planned')
-            axs[layer_id].plot(*zip(*spot_points_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Log-file sorted')
+            axs[layer_id].scatter(*zip(*spot_points_sorted), c=spot_mu_delta, cmap='seismic', edgecolors='black', linewidths=0.2, s=10, label='Log-file sorted')
+            axs[layer_id].plot(*zip(*spot_points_sorted), marker='None', linestyle='-', lw=0.2, color='black')
             # axs[layer_id].plot(*zip(*spot_points_log), marker='o', markerfacecolor='None', linestyle='--', color='black', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Log-file original')
             axs[layer_id].plot(*zip(*tuning_points_log), marker='o', markerfacecolor='None', linestyle='None', markersize=2.0, markeredgewidth=0.2, color='limegreen', label='Tuning spot(s)')
             axs[layer_id].annotate(f'Layer #{str(layer_id + 1).zfill(2)} | $\Delta$ = {abs(len(plan_x_positions) - len(spot_points_log))}', xy=(1.0, 1.0), xycoords='axes points', fontsize=8)
