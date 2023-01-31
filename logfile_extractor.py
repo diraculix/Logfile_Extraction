@@ -1168,7 +1168,8 @@ class MachineLog():
             #     return None
 
             axs[layer_id].plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Planned')
-            axs[layer_id].scatter(*zip(*spot_points_sorted), c=spot_mu_delta, cmap='seismic', edgecolors='black', linewidths=0.2, s=10, label='Log-file sorted')
+            # MU colour coding still bugged, needs deltaframe for functionality
+            axs[layer_id].scatter(*zip(*spot_points_sorted), c=spot_mu_delta, cmap='bwr', vmin=-0.1, vmax=0.1, edgecolors='black', linewidths=0.2, s=7, label='Log-file sorted')
             axs[layer_id].plot(*zip(*spot_points_sorted), marker='None', linestyle='-', lw=0.2, color='black')
             # axs[layer_id].plot(*zip(*spot_points_log), marker='o', markerfacecolor='None', linestyle='--', color='black', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Log-file original')
             axs[layer_id].plot(*zip(*tuning_points_log), marker='o', markerfacecolor='None', linestyle='None', markersize=2.0, markeredgewidth=0.2, color='limegreen', label='Tuning spot(s)')
@@ -2209,6 +2210,26 @@ class MachineLog():
             # sns.pairplot(joint_df.loc[joint_df['FRACTION_ID'] == self.fraction_list[1]][['DELTA_X(mm)', 'DELTA_Y(mm)', hue]], vars=['DELTA_X(mm)', 'DELTA_Y(mm)'], hue=hue, corner=True)
             # plt.show()
 
+    def single_spot_statistics(self):
+        delta_exists = False
+        for file in sorted(os.listdir(self.df_destination)):
+            if file.__contains__(str(self.patient_id)) and file.__contains__('delta') and file.endswith('.csv'):
+                print(f'''Found patient deltaframe '{file}', reading in..''')
+                self.patient_delta_df = pd.read_csv(os.path.join(self.df_destination, file), index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+                delta_exists = True
+                break 
+        
+        if not delta_exists:
+            print(f'  /x\ No deltaframe detected for patient_id {self.patient_id}, exiting..')
+        
+        fx_counts = []
+        for fx in self.fraction_list:
+            fx_df = self.patient_delta_df.loc[self.patient_delta_df['FRACTION_ID'] == fx]
+            fx_counts.append(len(fx_df))
+        
+        plt.hist(fx_counts)
+        plt.show()
+
 
             
 
@@ -2230,10 +2251,11 @@ if __name__ == '__main__':
     for id in ponaqua_qualified:
         log = MachineLog(os.path.join(root_dir, id))
         # df = log.patient_record_df.loc[(log.patient_record_df['FRACTION_ID'] == '20210617') & (log.patient_record_df['BEAM_ID'] == '2') & (log.patient_record_df['LAYER_ID'] == 5)]
-        log.prepare_dataframe()
-        log.prepare_deltaframe()
+        # log.prepare_dataframe()
+        # log.prepare_deltaframe()
         # log.delta_dependencies()
         # log.plot_beam_layers()
+        log.single_spot_statistics()
     
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
