@@ -2224,7 +2224,7 @@ class MachineLog():
                 single_stats_exists = True
             if delta_exists and single_stats_exists:
                 re_init = input(f'''Re-initialize [y/N]? ''')
-                if re_init == 'y' or re_init == 'Y':
+                if re_init == 'y':
                     break
                 else:
                     return None
@@ -2244,70 +2244,60 @@ class MachineLog():
         to_concat = []
         for beam_id in spots_data.keys():
             beam_df = self.patient_delta_df.loc[self.patient_delta_df['BEAM_ID'] == beam_id]
+            if beam_df.empty: continue
+
             most_common = max(set(spots_data[beam_id]), key=spots_data[beam_id].count)
             reference_fx = self.fraction_list[spots_data[beam_id].index(most_common)]  # <- first fraction with most common spot count
-            print(f'  Referencing all spots for {beam_id} to fx-ID {reference_fx}..')
+            print(f'  Referencing all spots for beam-ID {beam_id} to fx-ID {reference_fx}..')
             reference_df = beam_df.loc[beam_df['FRACTION_ID'] == reference_fx].reset_index()
+            if reference_df.empty: continue
+
             beam_sss_df = pd.DataFrame()
             for layer_id in reference_df.LAYER_ID.drop_duplicates():
                 print(f'    Starting layer-ID {layer_id}')
                 layer_df = reference_df.loc[reference_df.LAYER_ID == layer_id]
                 fx_dfs = []
-                for fx_id in self.fraction_list: 
-                    if fx_id == reference_fx: 
-                        continue
-                    
+                for fx_id in self.fraction_list:
                     fx_df = beam_df.loc[(beam_df.FRACTION_ID == fx_id) & (beam_df.LAYER_ID == layer_id)]
+                    if fx_df.empty: continue
+                    
+                    fx_df = fx_df.set_index('SPOT_ID')[operation_columns]
+
+                    # if same spot count -> no sorting needed
                     if len(fx_df) == len(layer_df):
-                        fx_df = fx_df[operation_columns]
-                        fx_df['GROUP'] = fx_df.reset_index().index
                         fx_dfs.append(fx_df)
-                #         # layer_df = layer_df.set_index('SPOT_ID')[operation_columns].add(fx_df.set_index('SPOT_ID')[operation_columns]).reset_index()
-                #         # count += 1
-                #         fx_df.reset_index(inplace=True)
-                #         fx_dfs.append(fx_df[operation_columns])
+
+                    # find and drop extra spot(s) from statistics
                     else:
-                        print(len(fx_df), len(layer_df))
-                
-                # for i, df in enumerate(fx_dfs):
-                #     fx_dfs[i]['GROUP'] = fx_dfs[i].index
-                                
-                # layer_df = layer_df.set_index('SPOT_ID')[operation_columns].divide(count).reset_index()
+                        layer_record = self.patient_record_df.loc[(self.patient_record_df.BEAM_ID == beam_id) & (self.patient_record_df.LAYER_ID == layer_id)] 
+                        record_reference, record_current = layer_record.loc[layer_record.FRACTION_ID == reference_fx], layer_record.loc[layer_record.FRACTION_ID == fx_id]
+                        record_reference['X_REF'], record_reference['Y_REF'] = record_reference['X_POSITION(mm)'].round(0), record_reference['Y_POSITION(mm)'].round(0)
+                        record_current['X_CURRENT'], record_current['Y_CURRENT'] = record_current['X_POSITION(mm)'].round(0), record_current['Y_POSITION(mm)'].round(0)
+                        record_reference.set_index('SPOT_ID', inplace=True), record_current.set_index('SPOT_ID', inplace=True)
+                        while len(record_current) != len(record_reference):
+                            compare_df = pd.concat([record_reference, record_current[['X_CURRENT', 'Y_CURRENT']]], axis=1)
+                            indices = compare_df.loc[(abs(compare_df['X_REF'] - compare_df['X_CURRENT']) > 1) | (abs(compare_df['Y_REF'] - compare_df['Y_CURRENT']) > 1)].index
+                            if len(record_current) > len(record_reference):
+                                record_current.drop(record_current.index[indices[0]], inplace=True)
+                                fx_df.drop(fx_df.index[indices[0]], inplace=True)
+                            else:
+                                record_reference.drop(record_reference.index[indices[0]], inplace=True)
+                                fx_df.index = fx_df.index * 2 + 2
+                                fx_df.loc[indices[0] * 2 + 1] = np.nan
+
+                            fx_df = fx_df.sort_index().reset_index()
+                            record_reference.reset_index(inplace=True), record_current.reset_index(inplace=True)
+                        
+                        fx_df = fx_df.drop(columns='SPOT_ID')
+                        fx_df.index.name = 'SPOT_ID'
+                        fx_dfs.append(fx_df)
+                    
                 layer_stacked = pd.concat(fx_dfs)
-                layer_means, layer_stds = layer_stacked.groupby('GROUP').mean(), layer_stacked.groupby('GROUP').std()
+                layer_means, layer_stds = layer_stacked.groupby('SPOT_ID').mean(), layer_stacked.groupby('SPOT_ID').std()
                 layer_means.rename(columns={col:col + '_MEAN' for col in operation_columns}, inplace=True)
                 layer_stds.rename(columns={col:col + '_STD' for col in operation_columns}, inplace=True)
-                # layer_means, layer_stds = pd.concat(fx_dfs).groupby('GROUP').mean(), pd.concat(fx_dfs).groupby('GROUP').std()
-                # layer_df = pd.concat([layer_means.rename(columns={col:col + '_MEAN' for col in operation_columns}), layer_stds.rename(columns={col:col + '_STD' for col in operation_columns})], axis=1)
                 sss_data = pd.concat([layer_means, layer_stds], axis=1)
                 beam_sss_df = pd.concat([beam_sss_df, sss_data])
-
-                # for spot_id in layer_df.SPOT_ID:
-                #     spot_dx, spot_dy, spot_dmu, spot_de = [], [], [], []
-                #     for fx_no, fx_id in enumerate(self.fraction_list):
-                #         fx_df = beam_df.loc[(beam_df.FRACTION_ID == fx_id) & (beam_df.LAYER_ID == layer_id)]
-                #         if len(fx_df) == len(layer_df):
-                #             spot = fx_df.loc[fx_df.SPOT_ID == spot_id]
-                #             spot_dx.append(spot['DELTA_X(mm)'].iloc[spot_id])
-                #             spot_dy.append(spot['DELTA_Y(mm)'].iloc[spot_id])
-                #             spot_dmu.append(spot['DELTA_MU'].iloc[spot_id])
-                #             spot_de.append(spot['DELTA_E(MeV)'].iloc[spot_id])
-                #         else:
-                #             # sort spots to reference
-                #             # do spot_dx.append(...)
-                #             pass
-
-                    # try:
-                    #     beam_sss_df.loc[(beam_sss_df.LAYER_ID == layer_id) & (beam_sss_df.SPOT_ID == spot_id), 'DELTA_X_MEAN(mm)'] = np.mean(spot_dx)
-                    #     beam_sss_df.loc[(beam_sss_df.LAYER_ID == layer_id) & (beam_sss_df.SPOT_ID == spot_id), 'DELTA_Y_MEAN(mm)'] = np.mean(spot_dy)
-                    #     beam_sss_df.loc[(beam_sss_df.LAYER_ID == layer_id) & (beam_sss_df.SPOT_ID == spot_id), 'DELTA_MU_MEAN'] = np.mean(spot_dmu)
-                    #     beam_sss_df.loc[(beam_sss_df.LAYER_ID == layer_id) & (beam_sss_df.SPOT_ID == spot_id), 'DELTA_E_MEAN(MeV)'] = np.mean(spot_de)
-                    #     beam_sss_df.loc[(beam_sss_df.LAYER_ID == layer_id) & (beam_sss_df.SPOT_ID == spot_id), 'DELTA_X_STD(mm)'] = np.std(spot_dx)
-                    #     beam_sss_df.loc[(beam_sss_df.LAYER_ID == layer_id) & (beam_sss_df.SPOT_ID == spot_id), 'DELTA_Y_STD(mm)'] = np.std(spot_dy)
-                    #     beam_sss_df.loc[(beam_sss_df.LAYER_ID == layer_id) & (beam_sss_df.SPOT_ID == spot_id), 'DELTA_MU_STD'] = np.std(spot_dmu)
-                    #     beam_sss_df.loc[(beam_sss_df.LAYER_ID == layer_id) & (beam_sss_df.SPOT_ID == spot_id), 'DELTA_E_STD(MeV)'] = np.std(spot_de)
-                    # except:
-                    #     print('      /!\ Empty dataframe')
 
             beam_sss_df.reset_index(inplace=True)
             reference_df.drop(columns=operation_columns, inplace=True)
@@ -2332,11 +2322,11 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
-    root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
+    # root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
     # erroneous = [1230180, 1625909, 1627648, 1660835, 1698000, 1700535]
     # for errid in erroneous:
     #     dir = os.path.join(root_dir, str(errid))
@@ -2344,15 +2334,21 @@ if __name__ == '__main__':
     #     log.prepare_dataframe()
     #     log.prepare_dataframe()
 
-    # ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
-    # for id in ponaqua_qualified:
-    #     log = MachineLog(os.path.join(root_dir, id))
-    #     # df = log.patient_record_df.loc[(log.patient_record_df['FRACTION_ID'] == '20210617') & (log.patient_record_df['BEAM_ID'] == '2') & (log.patient_record_df['LAYER_ID'] == 5)]
-    #     # log.prepare_dataframe()
-    #     # log.prepare_deltaframe()
-    #     # log.delta_dependencies()
-    #     # log.plot_beam_layers()
-    #     log.single_spot_statistics()
+    ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
+    for id in ponaqua_qualified:
+        log = MachineLog(os.path.join(root_dir, id))
+        log.prepare_sss_dataframe()
+        # x_mean = log.patient_sss_df['DELTA_Y(mm)_MEAN']
+        # x_std = log.patient_sss_df['DELTA_Y(mm)_STD']
+        # plt.hist(x_mean, bins=100)
+        # plt.hist(x_std, bins=50)
+        # plt.show()
+        
+        # df = log.patient_record_df.loc[(log.patient_record_df['FRACTION_ID'] == '20210617') & (log.patient_record_df['BEAM_ID'] == '2') & (log.patient_record_df['LAYER_ID'] == 5)]
+        # log.prepare_dataframe()
+        # log.prepare_deltaframe()
+        # log.delta_dependencies()
+        # log.plot_beam_layers()
     
     # patients = {}
     # print('Searching for log-file directories with existent plans..')
@@ -2368,7 +2364,7 @@ if __name__ == '__main__':
     #     # log.prepare_deltaframe()
     #     # log.delta_dependencies()
 
-    log = MachineLog(root_dir)
+    # log = MachineLog(root_dir)
     # df = log.patient_record_df
     # for fx in log.fraction_list:
     #     control = df.loc[(df['FRACTION_ID'] == fx) & (df['BEAM_ID'] == '2')]
@@ -2383,7 +2379,7 @@ if __name__ == '__main__':
 
     # log.prepare_dataframe()
     # log.plot_beam_layers()
-    log.prepare_sss_dataframe()
+    # log.prepare_sss_dataframe()
     # log.prepare_qa_dataframe()
     # log.prepare_deltaframe()
     # log.delta_dependencies()
