@@ -2236,25 +2236,32 @@ class MachineLog():
         spots_data = {beam_id:[] for beam_id in self.patient_delta_df.BEAM_ID.drop_duplicates()}
         operation_columns = ['DELTA_X(mm)', 'DELTA_Y(mm)', 'DELTA_MU', 'DELTA_E(MeV)']
 
+        # get spot counts per beam and fraction
         for fx_no, beams in enumerate(self.beam_list):
             for beam_id in beams:
                 beam_df = self.patient_delta_df.loc[(self.patient_delta_df['FRACTION_ID'] == self.fraction_list[fx_no]) & (self.patient_delta_df['BEAM_ID'] == beam_id)]
-                if not beam_df.empty: spots_data[beam_id].append(len(beam_df))
+                if not beam_df.empty: 
+                    spots_data[beam_id].append(len(beam_df))
+                else:
+                    spots_data[beam_id].append(np.nan)
         
         to_concat = []
         for beam_id in spots_data.keys():
             beam_df = self.patient_delta_df.loc[self.patient_delta_df['BEAM_ID'] == beam_id]
-            if beam_df.empty: continue
+            if beam_df.isnull().values.any() or beam_df.empty: continue
 
+            # set reference fraction (first fx holding the most common spot count)
             most_common = max(set(spots_data[beam_id]), key=spots_data[beam_id].count)
-            reference_fx = self.fraction_list[spots_data[beam_id].index(most_common)]  # <- first fraction with most common spot count
+            reference_fx = self.fraction_list[spots_data[beam_id].index(most_common)]
             print(f'  Referencing all spots for beam-ID {beam_id} to fx-ID {reference_fx}..')
             reference_df = beam_df.loc[beam_df['FRACTION_ID'] == reference_fx].reset_index()
-            if reference_df.empty: continue
+            if reference_df.empty: 
+                print('empty')
+                continue
 
             beam_sss_df = pd.DataFrame()
             for layer_id in reference_df.LAYER_ID.drop_duplicates():
-                print(f'    Starting layer-ID {layer_id}')
+                # print(f'    Starting layer-ID {layer_id}')
                 layer_df = reference_df.loc[reference_df.LAYER_ID == layer_id]
                 fx_dfs = []
                 for fx_id in self.fraction_list:
@@ -2276,7 +2283,7 @@ class MachineLog():
                         record_reference.set_index('SPOT_ID', inplace=True), record_current.set_index('SPOT_ID', inplace=True)
                         while len(record_current) != len(record_reference):
                             compare_df = pd.concat([record_reference, record_current[['X_CURRENT', 'Y_CURRENT']]], axis=1)
-                            indices = compare_df.loc[(abs(compare_df['X_REF'] - compare_df['X_CURRENT']) > 1) | (abs(compare_df['Y_REF'] - compare_df['Y_CURRENT']) > 1)].index
+                            indices = compare_df.loc[(abs(compare_df['X_REF'] - compare_df['X_CURRENT']) > 1) | (abs(compare_df['Y_REF'] - compare_df['Y_CURRENT']) > 1) | (compare_df['X_CURRENT'].apply(np.isnan)) | (compare_df['X_REF'].apply(np.isnan))].index
                             if len(record_current) > len(record_reference):
                                 record_current.drop(record_current.index[indices[0]], inplace=True)
                                 fx_df.drop(fx_df.index[indices[0]], inplace=True)
@@ -2336,6 +2343,7 @@ if __name__ == '__main__':
 
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
     for id in ponaqua_qualified:
+        # if id != "1632783": continue
         log = MachineLog(os.path.join(root_dir, id))
         log.prepare_sss_dataframe()
         # x_mean = log.patient_sss_df['DELTA_Y(mm)_MEAN']
@@ -2343,6 +2351,7 @@ if __name__ == '__main__':
         # plt.hist(x_mean, bins=100)
         # plt.hist(x_std, bins=50)
         # plt.show()
+        # log.delta_dependencies()
         
         # df = log.patient_record_df.loc[(log.patient_record_df['FRACTION_ID'] == '20210617') & (log.patient_record_df['BEAM_ID'] == '2') & (log.patient_record_df['LAYER_ID'] == 5)]
         # log.prepare_dataframe()
