@@ -2277,7 +2277,7 @@ class MachineLog():
                     # find and drop extra spot(s) from statistics
                     else:
                         layer_record = self.patient_record_df.loc[(self.patient_record_df.BEAM_ID == beam_id) & (self.patient_record_df.LAYER_ID == layer_id)] 
-                        record_reference, record_current = layer_record.loc[layer_record.FRACTION_ID == reference_fx], layer_record.loc[layer_record.FRACTION_ID == fx_id]
+                        record_reference, record_current = layer_record.loc[layer_record.FRACTION_ID == reference_fx].copy(), layer_record.loc[layer_record.FRACTION_ID == fx_id].copy()
                         record_reference['X_REF'], record_reference['Y_REF'] = record_reference['X_POSITION(mm)'].round(0), record_reference['Y_POSITION(mm)'].round(0)
                         record_current['X_CURRENT'], record_current['Y_CURRENT'] = record_current['X_POSITION(mm)'].round(0), record_current['Y_POSITION(mm)'].round(0)
                         record_reference.set_index('SPOT_ID', inplace=True), record_current.set_index('SPOT_ID', inplace=True)
@@ -2329,11 +2329,11 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
+    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
-    # root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
+    root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
     # erroneous = [1230180, 1625909, 1627648, 1660835, 1698000, 1700535]
     # for errid in erroneous:
     #     dir = os.path.join(root_dir, str(errid))
@@ -2341,11 +2341,11 @@ if __name__ == '__main__':
     #     log.prepare_dataframe()
     #     log.prepare_dataframe()
 
-    ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
-    for id in ponaqua_qualified:
-        # if id != "1632783": continue
-        log = MachineLog(os.path.join(root_dir, id))
-        log.prepare_sss_dataframe()
+    # ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
+    # for id in ponaqua_qualified:
+    #     # if id != "1632783": continue
+    #     log = MachineLog(os.path.join(root_dir, id))
+        # log.prepare_sss_dataframe()
         # x_mean = log.patient_sss_df['DELTA_Y(mm)_MEAN']
         # x_std = log.patient_sss_df['DELTA_Y(mm)_STD']
         # plt.hist(x_mean, bins=100)
@@ -2373,7 +2373,7 @@ if __name__ == '__main__':
     #     # log.prepare_deltaframe()
     #     # log.delta_dependencies()
 
-    # log = MachineLog(root_dir)
+    log = MachineLog(root_dir)
     # df = log.patient_record_df
     # for fx in log.fraction_list:
     #     control = df.loc[(df['FRACTION_ID'] == fx) & (df['BEAM_ID'] == '2')]
@@ -2388,7 +2388,12 @@ if __name__ == '__main__':
 
     # log.prepare_dataframe()
     # log.plot_beam_layers()
-    # log.prepare_sss_dataframe()
+    log.prepare_sss_dataframe()
+    x_mean = log.patient_sss_df['DELTA_X(mm)_MEAN']
+    x_std = log.patient_sss_df['DELTA_X(mm)_STD']
+    plt.hist(x_mean, bins=100)
+    plt.hist(x_std, bins=50)
+    plt.show()
     # log.prepare_qa_dataframe()
     # log.prepare_deltaframe()
     # log.delta_dependencies()
