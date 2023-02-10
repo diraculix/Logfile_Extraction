@@ -317,8 +317,10 @@ class MachineLog():
                             try:
                                 record_file_df['TIME'] = pd.to_datetime(record_file_df['TIME'], dayfirst=True)  # datetime index --> chronological order
                                 charge_col = pd.Series(record_file_df['DOSE_PRIM(C)'])                          # ion dose [C], to be converted in MU
+                                current_col = pd.Series(record_file_df['BEAMCURRENT(V)'])                       # beam current, measured as voltage at ... ?
                                 record_file_df = record_file_df.loc[:, :'Y_POSITION(mm)']                       # slice dataframe, drop redundant columns
                                 record_file_df['DOSE_PRIM(C)'] = charge_col
+                                record_file_df['BEAMCURRENT(V)'] = current_col
                                 try:
                                     record_file_df.drop(record_file_df[record_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)  # if split record file, nothing serious
                                 except: pass
@@ -354,7 +356,10 @@ class MachineLog():
                                 record_file_df.drop(record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & ((record_file_df['X_POSITION(mm)'] == -10000.0) | (record_file_df['Y_POSITION(mm)'] == -10000.0))].index, inplace=True)  # drop unusable rows for current submap
                                 
                                 # average over all spot entries for most accurate position/shape (recommended by IBA)                                
-                                mean_xpos, mean_ypos = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POSITION(mm)']].mean().iloc[0], record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POSITION(mm)']].mean().iloc[0]
+                                mean_xpos = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POSITION(mm)']].mean().iloc[0]
+                                mean_ypos = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POSITION(mm)']].mean().iloc[0]
+                                beam_curr = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['BEAMCURRENT(V)']].median().iloc[0]     # last entry always drops to 0, distorts mean
+                                                                                                                                                                # current is also reduced (~0.5) in case of light (<4ms) spots
                                 if current_spot_id != 0:
                                     if abs(mean_xpos - previous_xpos) < 1 and abs(mean_ypos - previous_ypos) < 1:  # proximity check for split spots (in case of high MU), custom tolerance 1mm
                                         print(f'  /!\ Split spot detected in layer-ID {layer_id}, merging..')
@@ -374,12 +379,13 @@ class MachineLog():
                                     record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POS_IC23(mm)']] = mean_ypos
                                     record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_WID_IC23(mm)']] = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_WIDTH(mm)']].mean().iloc[0]
                                     record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_WID_IC23(mm)']] = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_WIDTH(mm)']].mean().iloc[0]
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['BEAM_CURRENT(V)']] = beam_curr
 
                                 previous_xpos, previous_ypos, previous_spot_submap = mean_xpos, mean_ypos, current_spot_submap
                                 current_spot_submap = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] > current_spot_submap]['SUBMAP_NUMBER'].min()  # proceed to next submap
                                 if not split_spot: current_spot_id += 1  # keep track of spot id
                             
-                            record_file_df.drop(columns=['DOSE_PRIM(C)'], inplace=True)
+                            record_file_df.drop(columns=['DOSE_PRIM(C)', 'BEAMCURRENT(V)'], inplace=True)
                             record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entry for each spot
                             record_file_df.index = record_file_df['TIME']  # change to datetime index AFTER filtering, timestamp is NOT unique!
                             record_file_df.drop(columns=['TIME', 'SUBMAP_NUMBER'], inplace=True)
@@ -570,7 +576,7 @@ class MachineLog():
                     else:
                         print(f'  /!\ No record for layer-ID {layer_id} in beam {beam_id}, only spot replaced by tuning')
                         omitted_by_tuning = True
-                    
+                                   
                     if len(to_do_tunings) > 0:
                         tuning_df = pd.concat(to_do_tunings)
                         tuning_df['LAYER_ID'] = layer_id
@@ -911,7 +917,7 @@ class MachineLog():
                 try:
                     beam_seq = ds.IonBeamSequence
                 except AttributeError:
-                    if verbose: print(f'  /x\ DICOM {file} is SOP storage class, not actual RTPLAN')
+                    if verbose: print(f'  /x\ DICOM {file} is not ion RTPLAN')
                     continue
 
                 for beam in ds.IonBeamSequence:
@@ -2220,7 +2226,7 @@ class MachineLog():
                 delta_exists = True
             elif file.__contains__(str(self.patient_id)) and file.__contains__('sss_data') and file.endswith('.csv'):
                 print(f'''Found patient spot statistics data '{file}', reading in..''')
-                self.patient_sss_df = pd.read_csv(os.path.join(self.df_destination, file), index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str})
+                self.patient_sss_df = pd.read_csv(os.path.join(self.df_destination, file), dtype={'BEAM_ID':str})
                 single_stats_exists = True
             if delta_exists and single_stats_exists:
                 re_init = input(f'''Re-initialize [y/N]? ''')
@@ -2232,81 +2238,132 @@ class MachineLog():
         if not delta_exists:
             print(f'  /x\ No deltaframe detected for patient_id {self.patient_id}, please run prepare_deltaframe()')
         
+        # get spot counts per beam and fraction
         print(f'\nInitializing spot statistics dataframe for patient-ID {self.patient_id}..')
-        spots_data = {beam_id:[] for beam_id in self.patient_delta_df.BEAM_ID.drop_duplicates()}
+        beams = self.patient_delta_df.BEAM_ID.drop_duplicates()
+        spots_data = {beam_id:[] for beam_id in beams}
         operation_columns = ['DELTA_X(mm)', 'DELTA_Y(mm)', 'DELTA_MU', 'DELTA_E(MeV)']
 
-        # get spot counts per beam and fraction
-        for fx_no, beams in enumerate(self.beam_list):
+        for fx_id in self.fraction_list:
             for beam_id in beams:
-                beam_df = self.patient_delta_df.loc[(self.patient_delta_df['FRACTION_ID'] == self.fraction_list[fx_no]) & (self.patient_delta_df['BEAM_ID'] == beam_id)]
-                if not beam_df.empty: 
-                    spots_data[beam_id].append(len(beam_df))
+                beam_df = self.patient_delta_df.loc[(self.patient_delta_df['FRACTION_ID'] == fx_id) & (self.patient_delta_df['BEAM_ID'] == beam_id)]
+                if beam_df[operation_columns].isnull().values.all():
+                    spots_data[beam_id].append(0)
                 else:
-                    spots_data[beam_id].append(np.nan)
+                    spots_data[beam_id].append(len(beam_df))
         
         to_concat = []
         for beam_id in spots_data.keys():
             beam_df = self.patient_delta_df.loc[self.patient_delta_df['BEAM_ID'] == beam_id]
-            if beam_df.isnull().values.any() or beam_df.empty: continue
-
-            # set reference fraction (first fx holding the most common spot count)
-            most_common = max(set(spots_data[beam_id]), key=spots_data[beam_id].count)
-            reference_fx = self.fraction_list[spots_data[beam_id].index(most_common)]
-            print(f'  Referencing all spots for beam-ID {beam_id} to fx-ID {reference_fx}..')
-            reference_df = beam_df.loc[beam_df['FRACTION_ID'] == reference_fx].reset_index()
-            if reference_df.empty: 
-                print('empty')
+            
+            # accept only beams with >= 15 fx
+            valid_counts = [count for count in spots_data[beam_id] if count != 0]
+            if len(valid_counts) < 15:
                 continue
 
+            # set reference fraction (first fx holding the most common spot count)
+            most_common = max(set(valid_counts), key=valid_counts.count)
+            reference_fx = self.fraction_list[spots_data[beam_id].index(most_common)]
+            print(f'  Referencing all spots for beam-ID {beam_id} to fx-ID {reference_fx}..')
+            reference_df = beam_df.loc[beam_df['FRACTION_ID'] == reference_fx].reset_index(drop=True)
+
+            # fractional evolution by layer
             beam_sss_df = pd.DataFrame()
             for layer_id in reference_df.LAYER_ID.drop_duplicates():
-                # print(f'    Starting layer-ID {layer_id}')
-                layer_df = reference_df.loc[reference_df.LAYER_ID == layer_id]
+                print(f'    Starting layer-ID {layer_id}')
+                layer_record = self.patient_record_df.loc[(self.patient_record_df.BEAM_ID == beam_id) & (self.patient_record_df.LAYER_ID == layer_id)] 
                 fx_dfs = []
                 for fx_id in self.fraction_list:
                     fx_df = beam_df.loc[(beam_df.FRACTION_ID == fx_id) & (beam_df.LAYER_ID == layer_id)]
-                    if fx_df.empty: continue
-                    
                     fx_df = fx_df.set_index('SPOT_ID')[operation_columns]
+                    layer_reference = reference_df.loc[reference_df.LAYER_ID == layer_id].copy()  # keep this here, might be modified
 
-                    # if same spot count -> no sorting needed
-                    if len(fx_df) == len(layer_df):
+                    if fx_df.empty: 
+                        continue
+                    if fx_id == reference_fx:
                         fx_dfs.append(fx_df)
+                        continue  
+                    
+                    error = False
+                    record_reference, record_current = layer_record.loc[layer_record.FRACTION_ID == reference_fx].set_index('SPOT_ID').copy(), layer_record.loc[layer_record.FRACTION_ID == fx_id].set_index('SPOT_ID').copy()
+                    diff = abs(record_reference[['X_POSITION(mm)', 'Y_POSITION(mm)']] - record_current[['X_POSITION(mm)', 'Y_POSITION(mm)']])
+                    if len(fx_df) == len(layer_reference):
+                        if (diff > 3).any(axis=None):
+                            print(f'    /!\ X/Y fluctuation max of {np.round(diff.max().max(), 2)}mm in fraction {fx_id}, handling..')
+                        
+                        # verify correct sorting, cases exist where two different spots are missing in each df, but len() is equal
+                        while (diff > 3).any(axis=None):
+                            error = True
+                            xy_ref, xy_cur = pd.DataFrame(), pd.DataFrame()
+                            xy_ref[['X_REF', 'Y_REF']] = record_reference[['X_POSITION(mm)', 'Y_POSITION(mm)']]
+                            xy_cur[['X_CUR', 'Y_CUR']] = record_current[['X_POSITION(mm)', 'Y_POSITION(mm)']]
+                            comp = pd.concat([xy_ref, xy_cur], axis=1)
+                            err = comp.loc[(abs(comp.X_REF - comp.X_CUR) > 3) | (abs(comp.Y_REF - comp.Y_CUR) > 3)].index[0]
+                            if abs(xy_cur.X_CUR.iloc[err] - xy_ref.X_REF[err + 1]) < abs(xy_cur.X_CUR.iloc[err + 1] - xy_ref.X_REF[err]):  # current is missing spot
+                                print('CUR')
+                                record_current.index = record_current.index * 2 + 1
+                                record_current.loc[err * 2] = np.nan
+                                record_current = record_current.sort_index().reset_index(drop=True)
+                                record_current.index.name = 'SPOT_ID'
+                                fx_df.index = fx_df.index * 2 + 1
+                                fx_df.loc[err * 2] = np.nan
+                                fx_df = fx_df.sort_index().reset_index(drop=True)
+                                fx_df.index.name = 'SPOT_ID'
+                            else:
+                                print('REF')
+                                record_reference.index = record_reference.index * 2 + 1
+                                record_reference.loc[err * 2] = np.nan
+                                record_reference = record_reference.sort_index().reset_index(drop=True)
+                                record_reference.index.name = 'SPOT_ID'
+                                layer_reference.index = layer_reference.index * 2 + 1
+                                layer_reference.loc[err * 2] = np.nan
+                                layer_reference = layer_reference.sort_index().reset_index(drop=True)
+                                layer_reference.index.name = 'SPOT_ID'
 
-                    # find and drop extra spot(s) from statistics
+                            diff = abs(record_reference[['X_POSITION(mm)', 'Y_POSITION(mm)']] - record_current[['X_POSITION(mm)', 'Y_POSITION(mm)']])
+
+                        if (diff > 1).any(axis=None):
+                            print(f'    /!\ X/Y fluctuation max of {np.round(diff.max().max(), 2)}mm in fraction {fx_id}')
+
+                    # need to drop certain values
                     else:
-                        layer_record = self.patient_record_df.loc[(self.patient_record_df.BEAM_ID == beam_id) & (self.patient_record_df.LAYER_ID == layer_id)] 
+                        print(f'    /!\ Length mismatch in fraction {fx_id}, processing..')
                         record_reference, record_current = layer_record.loc[layer_record.FRACTION_ID == reference_fx].copy(), layer_record.loc[layer_record.FRACTION_ID == fx_id].copy()
                         record_reference['X_REF'], record_reference['Y_REF'] = record_reference['X_POSITION(mm)'].round(0), record_reference['Y_POSITION(mm)'].round(0)
                         record_current['X_CURRENT'], record_current['Y_CURRENT'] = record_current['X_POSITION(mm)'].round(0), record_current['Y_POSITION(mm)'].round(0)
                         record_reference.set_index('SPOT_ID', inplace=True), record_current.set_index('SPOT_ID', inplace=True)
                         while len(record_current) != len(record_reference):
-                            compare_df = pd.concat([record_reference, record_current[['X_CURRENT', 'Y_CURRENT']]], axis=1)
-                            indices = compare_df.loc[(abs(compare_df['X_REF'] - compare_df['X_CURRENT']) > 1) | (abs(compare_df['Y_REF'] - compare_df['Y_CURRENT']) > 1) | (compare_df['X_CURRENT'].apply(np.isnan)) | (compare_df['X_REF'].apply(np.isnan))].index
+                            comp = pd.concat([record_reference, record_current[['X_CURRENT', 'Y_CURRENT']]], axis=1)
+                            indices = comp.loc[(abs(comp['X_REF'] - comp['X_CURRENT']) > 1) | (abs(comp['Y_REF'] - comp['Y_CURRENT']) > 1) | (comp['X_CURRENT'].apply(np.isnan)) | (comp['X_REF'].apply(np.isnan))].index
+                            # if current fx has to many spots, drop them
                             if len(record_current) > len(record_reference):
                                 record_current.drop(record_current.index[indices[0]], inplace=True)
                                 fx_df.drop(fx_df.index[indices[0]], inplace=True)
+                            # if current fx has less spots, fill nan
                             else:
                                 record_reference.drop(record_reference.index[indices[0]], inplace=True)
                                 fx_df.index = fx_df.index * 2 + 2
                                 fx_df.loc[indices[0] * 2 + 1] = np.nan
 
-                            fx_df = fx_df.sort_index().reset_index()
-                            record_reference.reset_index(inplace=True), record_current.reset_index(inplace=True)
+                            fx_df = fx_df.sort_index().reset_index(drop=True)
+                            record_reference.reset_index(drop=True, inplace=True), record_current.reset_index(drop=True, inplace=True)
                         
-                        fx_df = fx_df.drop(columns='SPOT_ID')
                         fx_df.index.name = 'SPOT_ID'
-                        fx_dfs.append(fx_df)
                     
+                    fx_dfs.append(fx_df)
+                
                 layer_stacked = pd.concat(fx_dfs)
                 layer_means, layer_stds = layer_stacked.groupby('SPOT_ID').mean(), layer_stacked.groupby('SPOT_ID').std()
+                if error:
+                    print(layer_means)
+                    print(layer_stds)
+                    return None
                 layer_means.rename(columns={col:col + '_MEAN' for col in operation_columns}, inplace=True)
                 layer_stds.rename(columns={col:col + '_STD' for col in operation_columns}, inplace=True)
                 sss_data = pd.concat([layer_means, layer_stds], axis=1)
                 beam_sss_df = pd.concat([beam_sss_df, sss_data])
 
-            beam_sss_df.reset_index(inplace=True)
+            beam_sss_df.reset_index(drop=True, inplace=True)
             reference_df.drop(columns=operation_columns, inplace=True)
             finalized = pd.concat([reference_df, beam_sss_df], axis=1)
             to_concat.append(finalized)
@@ -2324,16 +2381,109 @@ class MachineLog():
             except PermissionError:
                 input('  Permission denied, close target file and press ENTER.. ')
         print('Complete')
+
+        return reference_fx
                 
 
+    def sss_histograms(self):
+        # locate existing dataframe
+        single_stats_exists = False
+        for file in sorted(os.listdir(self.df_destination)):
+            if file.__contains__(str(self.patient_id)) and file.__contains__('sss_data') and file.endswith('.csv'):
+                print(f'''Found patient spot statistics data '{file}', reading in..''')
+                self.patient_sss_df = pd.read_csv(os.path.join(self.df_destination, file), dtype={'BEAM_ID':str})
+                single_stats_exists = True
 
+        if not single_stats_exists:
+            print(f'/x\ No single spot statistics data found for patient-ID {self.patient_id}, exiting..')
+            return None
+        
+        beams = self.patient_sss_df.dropna().BEAM_ID.drop_duplicates().to_list()
+
+        # histograms (one patient)
+        sns.set()
+        cmap = sns.color_palette()
+        fig, axs = plt.subplots(len(beams), 3, figsize=(20, 10 * len(beams) / 3), sharex='col', sharey='row')
+
+        fig.suptitle(f'Patient {log.patient_id} Delivery Report', fontweight='bold')
+        axs[0, 0].set_title('X-position', fontstyle='italic')
+        axs[0, 1].set_title('Y-position', fontstyle='italic')
+        axs[0, 2].set_title('Dose', fontstyle='italic')
+        target_cols = [['DELTA_X(mm)_MEAN', 'DELTA_X(mm)_STD'], ['DELTA_Y(mm)_MEAN', 'DELTA_Y(mm)_STD'], ['DELTA_MU_MEAN', 'DELTA_MU_STD']]
+        ax_labels = ['$\Delta X$ [mm]', '$\Delta Y$ [mm]', '$\Delta D$ [MU]']
+        ax_units = ['mm', 'mm', 'MU']
+        label_text = ['Accuracy ($\mu$):', 'Precision ($\sigma$):']
+        for nr, bid in enumerate(beams):
+            df = log.patient_sss_df.loc[log.patient_sss_df.BEAM_ID == bid]
+            for i, (ax, cols) in enumerate(zip(axs[nr], target_cols)):
+                if i != 2:  # positions
+                    sns.histplot(df[cols], kde=True, ax=ax, binwidth=0.02, hue='DRILL_TIME(ms)')
+                    ax.set_xlim(-1.5, 1.5)
+                else:  # dose
+                    sns.histplot(df[cols], kde=True, ax=ax)
+                    ax.set_xlim(-0.02, 0.02)
+                for j, col in enumerate(cols):
+                    mean, std = df[col].mean(), df[col].std()
+                    ax.axvline(mean, ls='--', lw=1, color=cmap[j], label=f'{label_text[j]} {np.round(mean, 3)} $\pm$ {np.round(std, 3)} {ax_units[i]}')
+                
+                if nr == 0:
+                    ax.set_ylabel('')
+                ax.set_xlabel(ax_labels[i])
+                ax.legend(title='Single spot statistics', loc='upper left')
+                ax.text(0.98, .92, f'{df.GANTRY_ANGLE.iloc[0]}°', horizontalalignment='right', verticalalignment='center', transform = ax.transAxes, fontweight='bold', fontsize=14)
+
+        out = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports'
+        plt.tight_layout()
+        plt.savefig(os.path.join(out, f'{id}_sss_hist.png'), dpi=300)
+        # plt.show()
+
+
+    def sss_boxplot(self):
+        import textwrap
+        # boxplots (all patient with sss data)
+        sss_files = [file for file in os.listdir(self.df_destination) if file.__contains__('_sss_') and file.endswith('.csv')]
+        patient_dfs = []
+        for sss_file in sss_files:
+            print(f'  Reading {sss_file}..')
+            id = int(sss_file.split('_')[1])
+            sss_df = pd.read_csv(os.path.join(self.df_destination, sss_file))
+            sss_df['PATIENT_ID'] = id
+            patient_dfs.append(sss_df)
+        
+        df = pd.concat(patient_dfs)
+        sns.set()
+        fig, axs = plt.subplots(1, 3, figsize=(21, 7))
+        fig.suptitle(f'ALL PATIENTS', fontweight='bold')
+        axs[0].set_title('X-position error', fontstyle='italic')
+        axs[1].set_title('Y-position error', fontstyle='italic')
+        axs[2].set_title('Dose error', fontstyle='italic')
+        target_cols = [['DELTA_X(mm)_MEAN', 'DELTA_X(mm)_STD'], ['DELTA_Y(mm)_MEAN', 'DELTA_Y(mm)_STD'], ['DELTA_MU_MEAN', 'DELTA_MU_STD']]
+        ax_units = ['mm', 'mm', 'MU']
+        label_text = ['Accuracy ($\mu$):', 'Stability ($\sigma$):']
+        for i, (ax, cols) in enumerate(zip(axs, target_cols)):
+            sns.boxplot(data=df, x=df.GANTRY_ANGLE, y=df[cols[0]], showfliers=False, ax=ax, color='tab:blue', order=np.arange(360), width=10)
+            sns.boxplot(data=df, x=df.GANTRY_ANGLE, y=df[cols[1]], showfliers=False, ax=ax, color='tab:orange', order=np.arange(360), width=10)
+            ax.set_xlabel('Gantry angle [°]')
+            ax.set_xlim(-10, 360)
+            tick_every = 45
+            [tick.set_visible(False) for (i, tick) in enumerate(ax.get_xticklabels()) if i % tick_every != 0]
+
+        axs[0].set_ylim(-2, 2)
+        axs[0].set_ylabel('$\Delta X$ [mm]')
+        axs[1].set_ylim(-2, 2)
+        axs[1].set_ylabel('$\Delta Y$ [mm]')
+        axs[2].set_ylim(-0.005, 0.005)
+        axs[2].set_ylabel('$\Delta D$ [MU]')
+        plt.tight_layout
+        plt.show()
+                
 
 if __name__ == '__main__':
-    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
-    root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
+    # root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
     # erroneous = [1230180, 1625909, 1627648, 1660835, 1698000, 1700535]
     # for errid in erroneous:
     #     dir = os.path.join(root_dir, str(errid))
@@ -2341,65 +2491,38 @@ if __name__ == '__main__':
     #     log.prepare_dataframe()
     #     log.prepare_dataframe()
 
-    # ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
-    # for id in ponaqua_qualified:
-    #     # if id != "1632783": continue
-    #     log = MachineLog(os.path.join(root_dir, id))
-        # log.prepare_sss_dataframe()
-        # x_mean = log.patient_sss_df['DELTA_Y(mm)_MEAN']
-        # x_std = log.patient_sss_df['DELTA_Y(mm)_STD']
-        # plt.hist(x_mean, bins=100)
-        # plt.hist(x_std, bins=50)
+    ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
+    for id in ponaqua_qualified:
+        if id != "1230180": continue
+        log = MachineLog(os.path.join(root_dir, id))
+        # log.prepare_dataframe()
+        # log.prepare_deltaframe()
+        # ref_fx = log.prepare_sss_dataframe()
+        # log.sss_histograms()
+        log.sss_boxplot()
+        break
+
+        sns.set()
+        log.patient_sss_df.reset_index(drop=True, inplace=True)
+        angles = log.patient_sss_df.GANTRY_ANGLE.drop_duplicates().to_list()
+        weight = pd.Series(log.patient_record_df.loc[log.patient_record_df.FRACTION_ID == log.fraction_list[0], 'MU'] / log.patient_record_df.loc[log.patient_record_df.FRACTION_ID == log.fraction_list[0], 'BEAM_CURRENT(V)']).to_list()
+        mu = pd.Series(log.patient_record_df.loc[log.patient_record_df.FRACTION_ID == log.fraction_list[0], 'MU'])
+        current = pd.Series(log.patient_record_df.loc[log.patient_record_df.FRACTION_ID == log.fraction_list[0], 'BEAM_CURRENT(V)'])
+        time = pd.Series(log.patient_record_df.loc[log.patient_record_df.FRACTION_ID == log.fraction_list[0], 'DRILL_TIME(ms)']).to_list()
+        log.patient_sss_df['WEIGHT'] = weight
+        log.patient_sss_df['TIME'] = time
+        log.patient_sss_df['MU'] = mu
+        log.patient_sss_df['CURRENT'] = current
+        log.patient_sss_df.reindex()
+
+        g = sns.pairplot(log.patient_sss_df, vars=['DELTA_X(mm)_STD', 'TIME', 'WEIGHT'], hue='WEIGHT', corner=True, plot_kws={"s": 5})
+        plt.tight_layout()
+        plt.suptitle(f'''Patient {id} {angles}''', fontweight='bold')
+        out = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports'
+        plt.savefig(os.path.join(out, f'{id}_pairplot.png'), dpi=600)
         # plt.show()
         # log.delta_dependencies()
         
-        # df = log.patient_record_df.loc[(log.patient_record_df['FRACTION_ID'] == '20210617') & (log.patient_record_df['BEAM_ID'] == '2') & (log.patient_record_df['LAYER_ID'] == 5)]
-        # log.prepare_dataframe()
-        # log.prepare_deltaframe()
-        # log.delta_dependencies()
-        # log.plot_beam_layers()
-    
-    # patients = {}
-    # print('Searching for log-file directories with existent plans..')
-    # for root, dir, files in os.walk(root_dir):
-    #     if dir.__contains__('Logfiles') and dir.__contains__('DeliveredPlans'):
-    #         patient_id = root.split('\\')[-1]
-    #         print(f'''  Found {patient_id}''')
-    #         patients[patient_id] = os.path.join(root, 'Logfiles')
-    # for patient_id, log_dir in patients.items():
-    #     print(f'\n...STARTING PATIENT {patient_id}...\n')
-    #     log = MachineLog(log_dir)
-    #     log.prepare_dataframe()
-    #     # log.prepare_deltaframe()
-    #     # log.delta_dependencies()
-
-    log = MachineLog(root_dir)
-    # df = log.patient_record_df
-    # for fx in log.fraction_list:
-    #     control = df.loc[(df['FRACTION_ID'] == fx) & (df['BEAM_ID'] == '2')]
-    #     print(fx, control['LAYER_ID'].max())
-    # df1 = df.loc[(df['FRACTION_ID'] == log.fraction_list[0]) & (df['BEAM_ID'] == '2')]
-    # df2 = df.loc[(df['FRACTION_ID'] == '20200723') & (df['BEAM_ID'] == '2')]
-    # for lid in range(50):
-    #     dfslice1, dfslice2 = df1.loc[(df['LAYER_ID'] == lid)], df2.loc[(df['LAYER_ID'] == lid)]
-    #     plt.scatter(dfslice1['X_POSITION(mm)'], dfslice1['Y_POSITION(mm)'], alpha=0.5)
-    #     plt.scatter(dfslice2['X_POSITION(mm)'], dfslice2['Y_POSITION(mm)'], alpha=0.5)
-    #     plt.show()
-
-    # log.prepare_dataframe()
-    # log.plot_beam_layers()
-    log.prepare_sss_dataframe()
-    x_mean = log.patient_sss_df['DELTA_X(mm)_MEAN']
-    x_std = log.patient_sss_df['DELTA_X(mm)_STD']
-    plt.hist(x_mean, bins=100)
-    plt.hist(x_std, bins=50)
-    plt.show()
-    # log.prepare_qa_dataframe()
-    # log.prepare_deltaframe()
-    # log.delta_dependencies()
-    # log.fractional_evolution(all=True)
-    # log.plan_creator(fraction='all', mode='all')
-    # log.delta_correlation_matrix(gtr_only=False)
     pass
 
 else:
