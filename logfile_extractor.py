@@ -911,8 +911,9 @@ class MachineLog():
         if not os.path.isdir(delivered):
             plan_dir = r'/home/luke/Logfile_Extraction/1676348/DeliveredPlans'        
         
+        if verbose: print('''... will only accept RayStation plan exports ('RP.*.dcm') ...''')
         for file in os.listdir(plan_dir):
-            if file.endswith('.dcm'):
+            if file.__contains__('RP') and file.endswith('.dcm'):
                 ds = pydicom.read_file(os.path.join(plan_dir, file))
                 try:
                     beam_seq = ds.IonBeamSequence
@@ -920,7 +921,7 @@ class MachineLog():
                     if verbose: print(f'  /x\ DICOM {file} is not ion RTPLAN')
                     continue
 
-                for beam in ds.IonBeamSequence:
+                for beam in beam_seq:
                     plan_energies = np.array(pd.Series(sorted([layer.NominalBeamEnergy for layer in beam.IonControlPointSequence])).drop_duplicates().to_list())
                     
                     # check gantry angle, total layers, beam energies. Do not check names, they are non-standardized
@@ -931,6 +932,7 @@ class MachineLog():
                                 plan_dcm = os.path.join(plan_dir, file)
                                 beam_ds = beam
                                 found = True
+                                break
                     
                         except:
                             for plan_e in plan_energies:
@@ -942,7 +944,10 @@ class MachineLog():
                                         if verbose: 
                                             n_spots = beam.IonControlPointSequence[0].NumberOfScanSpotPositions
                                             if n_spots <= 1: print(f'  /!\ First layer with energy {plan_e} contains {n_spots} spot(s) - omitted by tuning?')
-                                            else: return None
+                                            else:
+                                                print(f'EXIT CODE 1 - {plan_e}, {n_spots} > 1') 
+                                                return None
+
                                     elif plan_e == min(plan_energies):
                                         plan_dcm = os.path.join(plan_dir, file)
                                         beam_ds = beam
@@ -950,10 +955,15 @@ class MachineLog():
                                         if verbose: 
                                             n_spots = beam.IonControlPointSequence[-2].NumberOfScanSpotPositions
                                             if n_spots <= 1: print(f'  /!\ Last layer with energy {plan_e} contains {n_spots} spot(s) - omitted by tuning?')
-                                            else: return None
+                                            else: 
+                                                print(f'EXIT CODE 2 - {plan_e}, {n_spots} > 1')
+                                                return None
+                                        
                                     else:
                                         if verbose: print(f'  /x\ Log-file is missing energy {plan_e}, skipping beam {beam_id}..')
                                         return None
+
+                            if found: break
 
                         if verbose:
                             print('\n\t\tLOG\tPLAN')
@@ -1004,6 +1014,7 @@ class MachineLog():
                     beam_ds = beam
                     found = True
         
+        if verbose: print('EXIT CODE 0')
         return plan_dcm, beam_ds
 
 
@@ -1464,7 +1475,7 @@ class MachineLog():
                     else:
                         print('  ', '[' + (layer_id + 1) * '#' + (num_layers - layer_id - 1) * '-' + ']', end=f' Layer {str(layer_id + 1).zfill(2)}/{str(num_layers).zfill(2)}\r')
 
-            print(f'  ..Fraction {f + 1}/{self.num_fractions} complete..')
+            print(f'  ..Fraction {f + 1}/{self.num_fractions} complete..\n')
 
         # concatenate layer deltaframes
         print('  ..Concatenating..')
@@ -1931,7 +1942,7 @@ class MachineLog():
                         plan_beam.IonControlPointSequence[layer_id * 2 + 1].CumulativeMetersetWeight = cumulative_mu
                         plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotMetersetWeights = layer_mu
                         plan_beam.IonControlPointSequence[layer_id * 2 + 1].ScanSpotMetersetWeights = [0.0 for _ in range(len(layer_mu))]
-                        plan_beam.IonControlPointSequence[layer_id * 2].NominalBeamEnergy = plan_beam.IonControlPointSequence[layer_id * 2 + 1].NominalBeamEnergy = layer_energy
+                        # plan_beam.IonControlPointSequence[layer_id * 2].NominalBeamEnergy = plan_beam.IonControlPointSequence[layer_id * 2 + 1].NominalBeamEnergy = layer_energy
                     
                     elif mode == 'pos':
                         if layer_id == 0:
@@ -2417,7 +2428,7 @@ class MachineLog():
             df = log.patient_sss_df.loc[log.patient_sss_df.BEAM_ID == bid]
             for i, (ax, cols) in enumerate(zip(axs[nr], target_cols)):
                 if i != 2:  # positions
-                    sns.histplot(df[cols], kde=True, ax=ax, binwidth=0.02, hue='DRILL_TIME(ms)')
+                    sns.histplot(df[cols], kde=True, ax=ax, binwidth=0.02)
                     ax.set_xlim(-1.5, 1.5)
                 else:  # dose
                     sns.histplot(df[cols], kde=True, ax=ax)
@@ -2493,14 +2504,15 @@ if __name__ == '__main__':
 
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
     for id in ponaqua_qualified:
-        if id != "1230180": continue
+        # if id != "1635796": continue
+        # if int(id) in [1663630, 671075, 1230180, 1635796, 1683480]: continue
         log = MachineLog(os.path.join(root_dir, id))
         # log.prepare_dataframe()
-        # log.prepare_deltaframe()
-        # ref_fx = log.prepare_sss_dataframe()
-        # log.sss_histograms()
-        log.sss_boxplot()
-        break
+        log.prepare_deltaframe()
+        ref_fx = log.prepare_sss_dataframe()
+        log.sss_histograms()
+        # log.sss_boxplot()
+        continue
 
         sns.set()
         log.patient_sss_df.reset_index(drop=True, inplace=True)
