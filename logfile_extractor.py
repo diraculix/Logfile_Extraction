@@ -358,7 +358,7 @@ class MachineLog():
                                 # average over all spot entries for most accurate position/shape (recommended by IBA)                                
                                 mean_xpos = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POSITION(mm)']].mean().iloc[0]
                                 mean_ypos = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POSITION(mm)']].mean().iloc[0]
-                                beam_curr = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['BEAMCURRENT(V)']].median().iloc[0]     # last entry always drops to 0, distorts mean
+                                beam_curr = record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (record_file_df['BEAMCURRENT(V)'] > 0), ['BEAMCURRENT(V)']].median().iloc[0]     # last entry always drops to 0, distorts mean
                                                                                                                                                                 # current is also reduced (~0.5) in case of light (<4ms) spots
                                 if current_spot_id != 0:
                                     if abs(mean_xpos - previous_xpos) < 1 and abs(mean_ypos - previous_ypos) < 1:  # proximity check for split spots (in case of high MU), custom tolerance 1mm
@@ -913,7 +913,7 @@ class MachineLog():
         
         if verbose: print('''... will only accept RayStation plan exports ('RP.*.dcm') ...''')
         for file in os.listdir(plan_dir):
-            if file.__contains__('RP') and file.endswith('.dcm'):
+            if file.__contains__('RP') and file.endswith('.dcm') and not file.__contains__('log'):
                 ds = pydicom.read_file(os.path.join(plan_dir, file))
                 try:
                     beam_seq = ds.IonBeamSequence
@@ -1134,14 +1134,37 @@ class MachineLog():
         beam_id = str(beam_list[key - 1])
         
         scope_record_df = self.patient_record_df.loc[self.patient_record_df['BEAM_ID'] == beam_id]  # slice currently needed portion from patient df
-        scope_record_df = scope_record_df.loc[scope_record_df['FRACTION_ID'] == scope_record_df['FRACTION_ID'].max()]  # analyze only last irradiated selected beam
         scope_tuning_df = self.patient_tuning_df.loc[self.patient_tuning_df['BEAM_ID'] == beam_id]
-        scope_tuning_df = scope_tuning_df.loc[scope_tuning_df['FRACTION_ID'] == scope_record_df['FRACTION_ID'].max()]
         print('Selected beam is:', beam_id)
 
+        fx_list = scope_record_df['FRACTION_ID'].drop_duplicates()
+        indices = fx_list.index.to_list()
+
+        print('\nSelect fraction to plot:\n')
+        print('Key\tFraction\n')  # choose beam
+        for choice, (index, fx) in enumerate(zip(indices, fx_list)):
+            print(f'({choice + 1})\t{fx}')
+
+        while True:
+            try:
+                key = int(input('\n Select fraction key: '))
+                if key > len(fx_list) or key <= 0:
+                    print('Key out of bounds, select another..')
+                    continue
+                else:
+                    break
+            except:
+                print('Invalid input, try again..')
+
+        fx_id = str(fx_list[key - 1])
+        print('Selected fraction is:', fx_id)
+
+        scope_record_df = scope_record_df.loc[scope_record_df['FRACTION_ID'] == fx_id]
+        scope_tuning_df = scope_tuning_df.loc[scope_tuning_df['FRACTION_ID'] == fx_id]
+
         print('\nGenerating layer plot..')
-        plan_dcm, beam_ds = self.dicom_finder(fraction_id=scope_record_df['FRACTION_ID'].iloc[0], beam_id=beam_id, verbose=True)
-        beam_sorting_dict = self.spot_sorter(fraction_id=scope_record_df['FRACTION_ID'].iloc[0], beam_id=beam_id)
+        plan_dcm, beam_ds = self.dicom_finder(fraction_id=fx_id, beam_id=beam_id, verbose=True)
+        beam_sorting_dict = self.spot_sorter(fraction_id=fx_id, beam_id=beam_id)
 
         fig, axs = plt.subplots(6, 8, sharex=True, sharey=True, figsize=(24, 24 * 6/8), dpi=150)  # initiate matrix-like layer plot
         ax0 = fig.add_subplot(111, frameon=False)
@@ -1375,7 +1398,7 @@ class MachineLog():
             for beam_id in fraction_df['BEAM_ID'].drop_duplicates():
                 has_plan = False
                 try:    
-                    plan_dcm, beam_ds = self.dicom_finder(fraction_id=fx_id, beam_id=beam_id, verbose=False)
+                    plan_dcm, beam_ds = self.dicom_finder(fraction_id=fx_id, beam_id=beam_id, verbose=True)
                     has_plan = True
                 except:
                     print(f'''  /!\ No plan dicom found for beam-ID {beam_id} in fraction-ID {fx_id}, setting NaN's..''')
@@ -1883,11 +1906,16 @@ class MachineLog():
             fx_list = [filedialog.askdirectory(initialdir=self.logfile_dir).split('/')[-1]]
             root.destroy()
         
-        for fx_id in fx_list:
+        for fx_no, fx_id in enumerate(fx_list):
             target_record = self.patient_record_df.loc[self.patient_record_df['FRACTION_ID'] == fx_id]
             target_tuning = self.patient_tuning_df.loc[self.patient_tuning_df['FRACTION_ID'] == fx_id]
-            beam_list = [str(i) for i in target_record['BEAM_ID'].drop_duplicates()]
-            plan_dcm, beam_ds = self.dicom_finder(fx_id, beam_list[0])
+            beam_list = target_record['BEAM_ID'].drop_duplicates().to_list()
+            try:
+                plan_dcm, beam_ds = self.dicom_finder(fx_id, beam_list[0])
+            except TypeError:
+                print(f'/!\ Fraction {fx_id} with beams {self.beam_list[fx_no]} will be skipped (NoPlanFoundError)')
+                continue
+
             dcm_path = os.path.dirname(plan_dcm)
             
             print(f'\nWriting RT plan for fraction-ID {fx_id}..')
@@ -1905,7 +1933,7 @@ class MachineLog():
                     if layer_df.empty: print(f'  /!\ Layer-ID {layer_id} has no record, probably one-spot layer')
                     tuning_df = target_tuning.loc[(target_tuning['BEAM_ID'] == beam_id) & (target_tuning['LAYER_ID'] == layer_id)]
                     layer_xy, layer_mu, tuning_xy, tuning_mu = [], [], [], []
-                    layer_energy = layer_df['LAYER_ENERGY(MeV)'].drop_duplicates().iloc[0]
+                    layer_energy = tuning_df['LAYER_ENERGY(MeV)'].drop_duplicates().iloc[0]
                     plan_xy = plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotPositionMap
 
                     # generate spot position list equal to DICOM tag --> [x1, y1, x2, y2, ..]
@@ -1917,7 +1945,7 @@ class MachineLog():
                         tuning_xy.append(tuning_df['X_POSITION(mm)'][tune_spot])
                         tuning_xy.append(tuning_df['Y_POSITION(mm)'][tune_spot])
                         tuning_mu.append(tuning_df['MU'][tune_spot])
-                    
+                                      
                     n_log_spots = len(layer_mu)
                     n_plan_spots = plan_beam.IonControlPointSequence[layer_id * 2].NumberOfScanSpotPositions
 
@@ -1932,8 +1960,15 @@ class MachineLog():
                         spot_diff = n_log_spots - n_plan_spots
                         if layer_id != 0 and spot_diff > 1:  # allow 1 spot difference for all layers except the first (which might have multiple tuning spots)
                             print(f'  /!\ Warning: {spot_diff} more spots recorded than planned in layer-ID {layer_id}, fraction-ID {fx_id}\n      > Check for additional tuning pulses')
+                            if spot_diff > 2:
+                                plt.plot([x for x in layer_xy if layer_xy.index(x) % 2 == 0], [y for y in layer_xy if layer_xy.index(y) % 2 != 0], 'o')
+                                plt.plot([x for x in plan_xy if plan_xy.index(x) % 2 == 0], [y for y in plan_xy if plan_xy.index(y) % 2 != 0], 'x')
+                                plt.show()
                         elif layer_id != 0 and spot_diff < 0:
                             print(f'  /x\ Critical: {abs(spot_diff)} less spots recorded than planned in layer-ID {layer_id}, fraction-ID {fx_id}\n      > Review log-files')
+                            plt.plot([x for x in layer_xy if layer_xy.index(x) % 2 == 0], [y for y in layer_xy if layer_xy.index(y) % 2 != 0], 'o')
+                            plt.plot([x for x in plan_xy if plan_xy.index(x) % 2 == 0], [y for y in plan_xy if plan_xy.index(y) % 2 != 0], 'x')
+                            plt.show()
 
                         plan_beam.IonControlPointSequence[layer_id * 2].NumberOfScanSpotPositions = plan_beam.IonControlPointSequence[layer_id * 2 + 1].NumberOfScanSpotPositions = n_log_spots
                         plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotPositionMap = plan_beam.IonControlPointSequence[layer_id * 2 + 1].ScanSpotPositionMap = layer_xy
@@ -2022,7 +2057,7 @@ class MachineLog():
             if not ds.RTPlanName.__contains__('log'):
                 ds.RTPlanName += f'_LOG_{fx_id}_{mode}'
             ds.RTPlanLabel = ds.RTPlanName
-            ds.ReferringPhysicianName = 'Wolter^Lukas'
+            # ds.ReferringPhysicianName = 'Wolter^Lukas'
             ds.ApprovalStatus = 'UNAPPROVED'
 
             print('\nWriting dicom..')
@@ -2265,7 +2300,13 @@ class MachineLog():
         
         to_concat = []
         for beam_id in spots_data.keys():
-            beam_df = self.patient_delta_df.loc[self.patient_delta_df['BEAM_ID'] == beam_id]
+            beam_df = self.patient_delta_df.loc[self.patient_delta_df['BEAM_ID'] == beam_id].reset_index()
+            beam_rec = self.patient_record_df.loc[self.patient_record_df['BEAM_ID'] == beam_id].reset_index()
+            if len(beam_df) == len(beam_rec):
+                beam_df = pd.concat([beam_df, beam_rec[['X_POSITION(mm)', 'Y_POSITION(mm)', 'MU', 'BEAM_CURRENT(V)', 'DRILL_TIME(ms)', 'LAYER_ENERGY(MeV)']]], axis=1)
+            else:
+                print('\n  /!\ Record DF doesnt match Delta DF! \n')
+                return None
             
             # accept only beams with >= 15 fx
             valid_counts = [count for count in spots_data[beam_id] if count != 0]
@@ -2365,10 +2406,6 @@ class MachineLog():
                 
                 layer_stacked = pd.concat(fx_dfs)
                 layer_means, layer_stds = layer_stacked.groupby('SPOT_ID').mean(), layer_stacked.groupby('SPOT_ID').std()
-                if error:
-                    print(layer_means)
-                    print(layer_stds)
-                    return None
                 layer_means.rename(columns={col:col + '_MEAN' for col in operation_columns}, inplace=True)
                 layer_stds.rename(columns={col:col + '_STD' for col in operation_columns}, inplace=True)
                 sss_data = pd.concat([layer_means, layer_stds], axis=1)
@@ -2392,8 +2429,6 @@ class MachineLog():
             except PermissionError:
                 input('  Permission denied, close target file and press ENTER.. ')
         print('Complete')
-
-        return reference_fx
                 
 
     def sss_histograms(self):
@@ -2437,8 +2472,7 @@ class MachineLog():
                     mean, std = df[col].mean(), df[col].std()
                     ax.axvline(mean, ls='--', lw=1, color=cmap[j], label=f'{label_text[j]} {np.round(mean, 3)} $\pm$ {np.round(std, 3)} {ax_units[i]}')
                 
-                if nr == 0:
-                    ax.set_ylabel('')
+                ax.set_ylabel('')
                 ax.set_xlabel(ax_labels[i])
                 ax.legend(title='Single spot statistics', loc='upper left')
                 ax.text(0.98, .92, f'{df.GANTRY_ANGLE.iloc[0]}°', horizontalalignment='right', verticalalignment='center', transform = ax.transAxes, fontweight='bold', fontsize=14)
@@ -2450,7 +2484,9 @@ class MachineLog():
 
 
     def sss_boxplot(self):
-        import textwrap
+        from matplotlib.patches import Patch
+        out = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports'
+
         # boxplots (all patient with sss data)
         sss_files = [file for file in os.listdir(self.df_destination) if file.__contains__('_sss_') and file.endswith('.csv')]
         patient_dfs = []
@@ -2461,32 +2497,62 @@ class MachineLog():
             sss_df['PATIENT_ID'] = id
             patient_dfs.append(sss_df)
         
-        df = pd.concat(patient_dfs)
+        df, n_fields = pd.concat(patient_dfs), 0
+        for id in df.PATIENT_ID.drop_duplicates():
+            n_fields += len(df.loc[df.PATIENT_ID == id, 'BEAM_ID'].drop_duplicates())
+        
         sns.set()
-        fig, axs = plt.subplots(1, 3, figsize=(21, 7))
+
+        # correlate
+        # method = 'spearman'
+        # df = df.loc[df['BEAM_CURRENT(V)'] > 0]
+        # df = df.sort_values(by='MU', ascending=True)
+        # df['DIST_TO_ISO'] = np.sqrt(df['X_POSITION(mm)']**2 + df['Y_POSITION(mm)']**2)
+        # df['MU/I'] = df['MU'] / df['BEAM_CURRENT(V)']
+
+        # # fig, ax = plt.subplots(1, 1, figsize=(20, 15))
+        # # corr = df.drop(columns=['Unnamed: 0', 'UNIQUE_INDEX', 'BEAM_ID', 'FRACTION_ID', 'SPOT_ID', 'LAYER_ID', 'TOTAL_LAYERS', 'DELTA_E(MeV)_MEAN', 'DELTA_E(MeV)_STD', 'PATIENT_ID']).corr(method=method)
+        # # sns.heatmap(corr, annot=True, cmap='icefire', vmin=-1.0, vmax=1.0)
+        # # plt.tight_layout()
+        # # plt.savefig(os.path.join(out, f'{method}.png'), dpi=300)
+
+        # fig2, ax2 = plt.subplots(1, 1, figsize=(15, 10))
+        # sns.lmplot(data=df, x='DRILL_TIME(ms)', y='MU/I', scatter_kws={'alpha':0.3})
+        # plt.xlabel('Drill time $t$ [ms]')
+        # plt.ylabel('Dose per beam current $\propto t$')
+        # plt.savefig(os.path.join(out, 'time_vs_mu-i.png'), dpi=300)
+        # return None
+        
+        fig, axs = plt.subplots(3, 1, figsize=(10, 10))
         fig.suptitle(f'ALL PATIENTS', fontweight='bold')
-        axs[0].set_title('X-position error', fontstyle='italic')
-        axs[1].set_title('Y-position error', fontstyle='italic')
-        axs[2].set_title('Dose error', fontstyle='italic')
+        titles = ['X-position error', 'Y-position error', 'Dose error']
         target_cols = [['DELTA_X(mm)_MEAN', 'DELTA_X(mm)_STD'], ['DELTA_Y(mm)_MEAN', 'DELTA_Y(mm)_STD'], ['DELTA_MU_MEAN', 'DELTA_MU_STD']]
-        ax_units = ['mm', 'mm', 'MU']
-        label_text = ['Accuracy ($\mu$):', 'Stability ($\sigma$):']
+        legend = [Patch(facecolor='tab:blue', edgecolor='black', label='Accuracy'), Patch(facecolor='tab:orange', edgecolor='black', label='Precision')]
         for i, (ax, cols) in enumerate(zip(axs, target_cols)):
-            sns.boxplot(data=df, x=df.GANTRY_ANGLE, y=df[cols[0]], showfliers=False, ax=ax, color='tab:blue', order=np.arange(360), width=10)
-            sns.boxplot(data=df, x=df.GANTRY_ANGLE, y=df[cols[1]], showfliers=False, ax=ax, color='tab:orange', order=np.arange(360), width=10)
-            ax.set_xlabel('Gantry angle [°]')
+            bp1 = sns.boxplot(data=df, x=df.GANTRY_ANGLE, y=df[cols[0]], showfliers=False, ax=ax, color='tab:blue', order=np.arange(360), width=10, linewidth=1)
+            bp2 = sns.boxplot(data=df, x=df.GANTRY_ANGLE, y=df[cols[1]], showfliers=False, ax=ax, color='tab:orange', order=np.arange(360), width=10, linewidth=1)
+            holm1 = ax.fill_betweenx(x1=105, x2=130, y=[-2, 2], color='silver', edgecolor='white', hatch='//', lw=1, zorder=-10)
+            holm2 = ax.fill_betweenx(x1=235, x2=260, y=[-2, 2], color='silver', edgecolor='white', hatch='//', lw=1, zorder=-10)
+            if i == 2:
+                ax.set_xlabel('Gantry angle [°]')
+            else:
+                ax.set_xlabel('')
+            
             ax.set_xlim(-10, 360)
+            ax.legend(handles=legend, loc='upper right', title=titles[i])
             tick_every = 45
             [tick.set_visible(False) for (i, tick) in enumerate(ax.get_xticklabels()) if i % tick_every != 0]
 
+        axs[0].set_title('Fields grouped by gantry position')
         axs[0].set_ylim(-2, 2)
         axs[0].set_ylabel('$\Delta X$ [mm]')
         axs[1].set_ylim(-2, 2)
         axs[1].set_ylabel('$\Delta Y$ [mm]')
-        axs[2].set_ylim(-0.005, 0.005)
+        axs[2].set_ylim(-0.004, 0.004)
         axs[2].set_ylabel('$\Delta D$ [MU]')
         plt.tight_layout
-        plt.show()
+        plt.savefig(os.path.join(out, 'boxplots_angular.png'), dpi=300)
+        # plt.show()
                 
 
 if __name__ == '__main__':
@@ -2504,35 +2570,36 @@ if __name__ == '__main__':
 
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
     for id in ponaqua_qualified:
-        # if id != "1635796": continue
+        if id != "1663630": continue
         # if int(id) in [1663630, 671075, 1230180, 1635796, 1683480]: continue
         log = MachineLog(os.path.join(root_dir, id))
         # log.prepare_dataframe()
-        log.prepare_deltaframe()
-        ref_fx = log.prepare_sss_dataframe()
-        log.sss_histograms()
+        # log.prepare_deltaframe()
+        # log.prepare_sss_dataframe()
+        # log.sss_histograms()
+        log.plot_beam_layers()
         # log.sss_boxplot()
-        continue
+        # log.plan_creator(fraction='all', mode='all')
 
+        continue
         sns.set()
         log.patient_sss_df.reset_index(drop=True, inplace=True)
-        angles = log.patient_sss_df.GANTRY_ANGLE.drop_duplicates().to_list()
-        weight = pd.Series(log.patient_record_df.loc[log.patient_record_df.FRACTION_ID == log.fraction_list[0], 'MU'] / log.patient_record_df.loc[log.patient_record_df.FRACTION_ID == log.fraction_list[0], 'BEAM_CURRENT(V)']).to_list()
-        mu = pd.Series(log.patient_record_df.loc[log.patient_record_df.FRACTION_ID == log.fraction_list[0], 'MU'])
-        current = pd.Series(log.patient_record_df.loc[log.patient_record_df.FRACTION_ID == log.fraction_list[0], 'BEAM_CURRENT(V)'])
-        time = pd.Series(log.patient_record_df.loc[log.patient_record_df.FRACTION_ID == log.fraction_list[0], 'DRILL_TIME(ms)']).to_list()
-        log.patient_sss_df['WEIGHT'] = weight
-        log.patient_sss_df['TIME'] = time
-        log.patient_sss_df['MU'] = mu
-        log.patient_sss_df['CURRENT'] = current
-        log.patient_sss_df.reindex()
+        log.patient_sss_df.dropna(inplace=True)
+        
+        
+        weight = pd.Series(log.patient_sss_df['MU'] / log.patient_sss_df.loc[log.patient_sss_df['BEAM_CURRENT(V)'] > 0, 'BEAM_CURRENT(V)']).to_list()
+        log.patient_sss_df['DOSE/CURR'] = weight
+        log.patient_sss_df['DISTTOISO(mm)'] = np.sqrt(log.patient_sss_df['X_POSITION(mm)']**2 + log.patient_sss_df['Y_POSITION(mm)']**2)
+        sorted_df = log.patient_sss_df.sort_values(by=['DOSE/CURR'], ascending=True)
+        angles = sorted_df.GANTRY_ANGLE.drop_duplicates().to_list()
+        sorted_df = sorted_df.loc[sorted_df.BEAM_ID == '6']
 
-        g = sns.pairplot(log.patient_sss_df, vars=['DELTA_X(mm)_STD', 'TIME', 'WEIGHT'], hue='WEIGHT', corner=True, plot_kws={"s": 5})
+        g = sns.pairplot(sorted_df, vars=['DELTA_X(mm)_MEAN', 'DELTA_Y(mm)_MEAN', 'DELTA_X(mm)_STD', 'DELTA_Y(mm)_STD'], hue='DISTTOISO(mm)', corner=True, plot_kws={"s": 5})
         plt.tight_layout()
         plt.suptitle(f'''Patient {id} {angles}''', fontweight='bold')
         out = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports'
-        plt.savefig(os.path.join(out, f'{id}_pairplot.png'), dpi=600)
-        # plt.show()
+        # plt.savefig(os.path.join(out, f'{id}_pairplot.png'), dpi=600)
+        plt.show()
         # log.delta_dependencies()
         
     pass
