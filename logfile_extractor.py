@@ -1162,6 +1162,18 @@ class MachineLog():
         scope_record_df = scope_record_df.loc[scope_record_df['FRACTION_ID'] == fx_id]
         scope_tuning_df = scope_tuning_df.loc[scope_tuning_df['FRACTION_ID'] == fx_id]
 
+        print('Tuning violations:')
+        for i, tune_spot in enumerate(scope_tuning_df):
+            if abs(scope_tuning_df['X_POSITION(mm)'].iloc[i]) > 150 or abs(scope_tuning_df['Y_POSITION(mm)'].iloc[i]) > 193:
+                print('  ', '150mm < x =', scope_tuning_df['X_POSITION(mm)'].iloc[i])
+                print('  ', '193mm < y =', scope_tuning_df['Y_POSITION(mm)'].iloc[i])
+        
+        print('Record violations:')
+        for i, rec_spot in enumerate(scope_record_df):
+            if abs(scope_record_df['X_POSITION(mm)'].iloc[i]) > 150 or abs(scope_record_df['Y_POSITION(mm)'].iloc[i]) > 193:
+                print('  ', '150mm < x =', scope_record_df['X_POSITION(mm)'].iloc[i])
+                print('  ', '193mm < y =', scope_record_df['Y_POSITION(mm)'].iloc[i])
+
         print('\nGenerating layer plot..')
         plan_dcm, beam_ds = self.dicom_finder(fraction_id=fx_id, beam_id=beam_id, verbose=True)
         beam_sorting_dict = self.spot_sorter(fraction_id=fx_id, beam_id=beam_id)
@@ -2570,18 +2582,18 @@ if __name__ == '__main__':
 
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
     for id in ponaqua_qualified:
-        if id != "1663630": continue
+        if id != "1180747": continue
         # if int(id) in [1663630, 671075, 1230180, 1635796, 1683480]: continue
         log = MachineLog(os.path.join(root_dir, id))
         # log.prepare_dataframe()
         # log.prepare_deltaframe()
-        # log.prepare_sss_dataframe()
+        log.prepare_sss_dataframe()
         # log.sss_histograms()
-        log.plot_beam_layers()
+        # log.plot_beam_layers()
         # log.sss_boxplot()
         # log.plan_creator(fraction='all', mode='all')
 
-        continue
+        # continue
         sns.set()
         log.patient_sss_df.reset_index(drop=True, inplace=True)
         log.patient_sss_df.dropna(inplace=True)
@@ -2592,13 +2604,13 @@ if __name__ == '__main__':
         log.patient_sss_df['DISTTOISO(mm)'] = np.sqrt(log.patient_sss_df['X_POSITION(mm)']**2 + log.patient_sss_df['Y_POSITION(mm)']**2)
         sorted_df = log.patient_sss_df.sort_values(by=['DOSE/CURR'], ascending=True)
         angles = sorted_df.GANTRY_ANGLE.drop_duplicates().to_list()
-        sorted_df = sorted_df.loc[sorted_df.BEAM_ID == '6']
+        # sorted_df = sorted_df.loc[sorted_df.BEAM_ID == '6']
 
-        g = sns.pairplot(sorted_df, vars=['DELTA_X(mm)_MEAN', 'DELTA_Y(mm)_MEAN', 'DELTA_X(mm)_STD', 'DELTA_Y(mm)_STD'], hue='DISTTOISO(mm)', corner=True, plot_kws={"s": 5})
+        g = sns.pairplot(sorted_df, vars=['DELTA_X(mm)_MEAN', 'DELTA_Y(mm)_MEAN', 'DELTA_X(mm)_STD', 'DELTA_Y(mm)_STD'], hue='DOSE/CURR', corner=True)  #, plot_kws={"s": 5})
         plt.tight_layout()
         plt.suptitle(f'''Patient {id} {angles}''', fontweight='bold')
         out = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports'
-        # plt.savefig(os.path.join(out, f'{id}_pairplot.png'), dpi=600)
+        plt.savefig(os.path.join(out, f'{id}_pairplot_time.png'), dpi=600)
         plt.show()
         # log.delta_dependencies()
         
