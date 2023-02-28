@@ -5,17 +5,18 @@ Tested with Python 3.6.3 & pymedphys 0.36.1
 import pymedphys, pydicom, sys, os
 from pymedphys import gamma
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from PyQt5 import QtWidgets, QtCore
 
-# Create QApplication instance
-app = QtWidgets.QApplication(sys.argv)
 
-def gamma_3d(dpt, dta, path_to_ref, path_to_eval, cutoff=20, interp=10):
+def gamma_3d(dpt, dta, path_to_ref, path_to_eval, cutoff=10, interp=10):
     # Load the two DICOM dose files to be compared
-    ref = pymedphys.dicom.zyx_and_dose_from_dataset(pydicom.read_file(path_to_ref))
-    eval = pymedphys.dicom.zyx_and_dose_from_dataset(pydicom.read_file(path_to_eval))
+    try:
+        ref = pymedphys.dicom.zyx_and_dose_from_dataset(pydicom.read_file(path_to_ref))
+        eval = pymedphys.dicom.zyx_and_dose_from_dataset(pydicom.read_file(path_to_eval))
+    except:
+        ref = pymedphys.dicom.zyx_and_dose_from_dataset(path_to_ref)
+        eval = pymedphys.dicom.zyx_and_dose_from_dataset(path_to_eval)
 
     # Get the dose grids and coordinate arrays from the DICOM files
     dose_ref_grid, coord_ref = ref[:2]
@@ -23,7 +24,7 @@ def gamma_3d(dpt, dta, path_to_ref, path_to_eval, cutoff=20, interp=10):
 
     # Define the gamma analysis parameters
     dose_percent_threshold = dpt
-    distance_mm_threshold = dpt
+    distance_mm_threshold = dta
     lower_percent_dose_cutoff = cutoff
     interp_fraction = interp
 
@@ -49,59 +50,146 @@ def gamma_3d(dpt, dta, path_to_ref, path_to_eval, cutoff=20, interp=10):
     return passed, max_gamma, mean_gamma, std_gamma
 
 
-# Create a class for the gamma map plotting tool
-class GammaViewer(QtWidgets.QWidget):
-    def __init__(self, gamma_map):
-        super().__init__()
+def voxel_wise(dpt, path_to_ref, path_to_eval, cutoff=20):
+    # Load the two DICOM dose files to be compared
+    ref = pymedphys.dicom.zyx_and_dose_from_dataset(pydicom.read_file(path_to_ref))
+    eval = pymedphys.dicom.zyx_and_dose_from_dataset(pydicom.read_file(path_to_eval))
 
-        self.gamma_map = gamma_map.reshape(dose_ref_grid.shape)
+    # Get the dose grids and coordinate arrays from the DICOM files
+    dose_ref_grid, coord_ref = ref[:2]
+    dose_eval_grid, coord_eval = eval[:2]
 
-        # Set up the figure canvas for the gamma map plot
-        self.figure = plt.figure()
-        self.canvas = FigureCanvas(self.figure)
+    ref_max = np.nanmax(coord_ref)
+    mask = (coord_ref < (cutoff / 100) * ref_max) & (~np.isnan(coord_ref))
+    # coord_ref[mask] = np.nan
+    percent_difference = np.abs(coord_ref - coord_eval) / ref_max * 100
+    passed = np.count_nonzero((percent_difference < dpt) & (~np.isnan(percent_difference))) / np.count_nonzero((~np.isnan(percent_difference)))
+    print(passed)
 
-        # Add the gamma map plot to the figure canvas
-        self.ax = self.figure.add_subplot(111)
-        self.plot_gamma_map()
 
-        # Set up the scrollbar for scrolling through the dataset
-        self.scrollbar = QtWidgets.QScrollBar(QtCore.Qt.Horizontal)
-        self.scrollbar.setMaximum(gamma.shape[0] - 1)
-        self.scrollbar.valueChanged.connect(self.update_slice)
+def full_eval():
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
+    ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
+    plans = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\DeliveredPlans'
+    for id in ponaqua_qualified:
+        print(f'>>> START ID {id}')
+        plan_dir = os.path.join(plans, id)
+        dose_dir = os.path.join(plan_dir, 'Doses')
+        log_dir = os.path.join(root_dir, '..', 'extracted')
+        for file in os.listdir(log_dir):
+            if file.__contains__(str(id)) and file.__contains__('record') and file.endswith('csv'):
+                record_df = pd.read_csv(os.path.join(log_dir, file), index_col='TIME', dtype={'FRACTION_ID':str, 'BEAM_ID':str})
+            elif file.__contains__(str(id)) and file.__contains__('delta') and file.endswith('csv'):
+                delta_df = pd.read_csv(os.path.join(log_dir, file), index_col='UNIQUE_INDEX', dtype={'FRACTION_ID':str, 'BEAM_ID':str})
+        
+        if len(record_df) == len(delta_df):
+            record_df.reset_index(inplace=True), delta_df.reset_index(inplace=True)
+            df = pd.concat([record_df, delta_df], axis=1)
+            df = df.loc[:,~df.columns.duplicated()].copy()
+        else:
+            print('   /x\ DF length mismatch!')
+            continue
 
-        # Set up the layout for the GUI
-        layout = QtWidgets.QVBoxLayout()
-        layout.addWidget(self.canvas)
-        layout.addWidget(self.scrollbar)
-        self.setLayout(layout)
+        # accept only more than 15 fx
+        for beam in df.BEAM_ID.drop_duplicates():
+            beam_df = df.loc[df.BEAM_ID == beam]
+            if len(beam_df.FRACTION_ID.drop_duplicates()) < 15:
+                df.drop(beam_df.index, inplace=True)
 
-    def plot_gamma_map(self):
-        self.ax.imshow(self.gamma_map, cmap='coolwarm', vmin=0, vmax=2)
-        self.ax.set_title('Gamma Map')
-        self.ax.set_xlabel('X (mm)')
-        self.ax.set_ylabel('Y (mm)')
+        # prepare output
+        beams = df.BEAM_ID.drop_duplicates().to_list()
+        fractions = df.FRACTION_ID.drop_duplicates().to_list()
+        # target_df = pd.DataFrame(index=fractions, columns=[f'Beam_{bid}_LOGPASS' for bid in beams] + ['TOTAL_LOGPASS'] + [f'Beam_{bid}_GAMMAPASS' for bid in beams] + ['TOTAL_GAMMAPASS'])
+        gamma_crits = [(3, 3), (2, 2), (1, 1)]  # dpt, dta
+        log_crits = [2, 1.5, 1]  # mm distance to plan spot
+        target_df = pd.DataFrame(columns=['FRACTION_ID'] + [f'LOGPASS_{crit}_mm' for crit in log_crits] + [f'GAMMAPASS_{crit[0]}_{crit[1]}' for crit in gamma_crits])
+        df['DISTANCE'] = np.sqrt(df['DELTA_X(mm)'].copy() ** 2 + df['DELTA_Y(mm)'].copy() ** 2)
 
-    def update_slice(self, slice_num):
-        self.ax.cla()
-        self.ax.imshow(self.gamma_map[slice_num], cmap='coolwarm', vmin=0, vmax=2)
-        self.ax.set_title(f'Gamma Map (Slice {slice_num+1}/{self.gamma_map.shape[0]})')
-        self.ax.set_xlabel('X (mm)')
-        self.ax.set_ylabel('Y (mm)')
-        self.canvas.draw()
+        # calculate physical spot pass rate
+        for i, fx in enumerate(fractions):
+            if fx != fractions[-1]:
+                print(f'  > Calculating physical passrates ({i + 1}/{len(fractions)})..', end='\r')  
+            else:
+                print(f'  > Calculating physical passrates ({i + 1}/{len(fractions)})..', end='\n')   
+            for crit in log_crits:
+                fx_df = df.loc[df.FRACTION_ID == fx]
+                total_log_pass = fx_df.loc[fx_df.DISTANCE <= crit].MU.sum() / fx_df.MU.sum()
+                target_df.loc[i, 'FRACTION_ID'] = fx
+                target_df.loc[i, f'LOGPASS_{crit}_mm'] = total_log_pass
+        
+        # calculate gamma dose pass rate
+        for i, fx in enumerate(fractions):
+            print(f'  > Calculating gamma-3D passrates ({i + 1}/{len(fractions)})..') 
+            for crit in gamma_crits:
+                for bid in beams:
+                    has_ref_plan, has_ref_beam, has_eval_plan, has_eval_beam = False, False, False, False
+                    # get reference doses
+                    for file in os.listdir(dose_dir):
+                        if file.startswith('RD') and file.endswith('.dcm'):  # accept only RS export dose dicoms (these are the only dose files in /Doses)
+                            ds = pydicom.read_file(os.path.join(dose_dir, file))
+                            if ds.DoseSummationType == 'PLAN':
+                                ref_plan_dose = ds
+                                has_ref_plan = True
+                            elif ds.DoseSummationType == 'BEAM':
+                                if ds.InstanceNumber == int(bid):
+                                    ref_beam_dose = ds
+                                    has_ref_beam = True
 
+                        if has_ref_plan and has_ref_beam: 
+                            break
+
+                    # get evaluation doses
+                    for file in os.listdir(os.path.join(dose_dir, 'eval')):
+                        if file.startswith('RD') and file.endswith('.dcm'):
+                            ds = pydicom.read_file(os.path.join(dose_dir, 'eval', file))
+                            if ds.SeriesDescription.__contains__(str(fx)):
+                                if ds.DoseSummationType == 'PLAN':
+                                    eval_plan_dose = ds
+                                    has_eval_plan = True
+                                elif ds.DoseSummationType == 'BEAM':
+                                    if ds.InstanceNumber == int(bid):
+                                        eval_beam_dose = ds
+                                        has_eval_beam = True
+                        
+                        if has_eval_plan and has_eval_beam:
+                            break
+
+                    # dpt, dta = crit
+                    # beam_gamma_pass, _, _, _ = gamma_3d(dpt, dta, ref_beam_dose, eval_beam_dose)
+                    # target_df.loc[fx, f'Beam_{bid}_GAMMAPASS'] = beam_gamma_pass
+                
+                dpt, dta = crit
+                plan_gamma_pass, _, _, _ = gamma_3d(dpt, dta, ref_plan_dose, eval_plan_dose)
+                target_df.loc[i, 'FRACTION_ID'] = fx
+                target_df.loc[i, f'GAMMAPASS_{dpt}_{dta}'] = plan_gamma_pass
+
+                del ref_beam_dose, ref_plan_dose, eval_beam_dose, eval_plan_dose
+
+                written = False
+                while not written:
+                    try: 
+                        target_df.to_csv(os.path.join(dose_dir, f'{id}_3Dgamma_{crit[0]}p-{crit[1]}m.csv'))               
+                        break
+                    except PermissionError:
+                        input(f'  /!\ Permission denied for target CSV, close file and press ENTER..')
+            
 
 if __name__ == '__main__':
     root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\DeliveredPlans\1663630\Doses'
     eval_dir = os.path.join(root_dir, 'eval')
-    dpt, dta = 1, 0  # percent, mm
-    ref = os.path.join(root_dir, 'RD_R1_HNO.dcm')
-    evals = [os.path.join(eval_dir, dcm) for dcm in os.listdir(eval_dir) if dcm.__contains__('RD') and dcm.endswith('.dcm')]
-    data = ['Fx\tPass\tMax\tMean\tStd\n']
-    for fx, eval in enumerate(evals):
-        print(f'>> STARTING 3D gamma evaluation {fx+1}/{len(evals)} with {dpt}%/{dta}mm..')
-        passed, max, mean, std = gamma_3d(dpt, dta, ref, eval)
-        data.append(f'{fx+1}\t{np.round(passed, 5)}\t{np.round(max, 5)}\t{np.round(mean, 5)}\t{np.round(std, 5)}\n')
+    criteria = [(2, 2), (1, 1), (1, 0.5), (0.5, 1), (0.5, 0.5)]
+    # ref = os.path.join(root_dir, 'RD_R1_HNO.dcm')
+    # evals = [os.path.join(eval_dir, dcm) for dcm in os.listdir(eval_dir) if dcm.__contains__('RD') and dcm.endswith('.dcm')]
+    # data = ['Fx\tPass\tMax\tMean\tStd\n']
+    # for fx, eval in enumerate(evals):
+    #     print(f'>> STARTING 3D gamma evaluation for  {fx+1}/{len(evals)} with {dpt}%/{dta}mm..')
+    #     voxel_wise(1, ref, eval)
+    #     passed, max, mean, std = gamma_3d(dpt, 1000, ref, eval)
+    #     print(passed)
+    #     # data.append(f'{fx+1}\t{np.round(passed, 5)}\t{np.round(max, 5)}\t{np.round(mean, 5)}\t{np.round(std, 5)}\n')
     
-    with open(os.path.join(root_dir, f'gamma3D_{dpt}p_{dta}mm.txt'), 'w+') as file:
-        file.writelines(data)
-        file.close()
+    # with open(os.path.join(root_dir, f'gamma3D_{dpt}p_{dta}mm.txt'), 'w+') as file:
+    #     file.writelines(data)
+    #     file.close()
+
+    full_eval()
