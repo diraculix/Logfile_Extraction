@@ -317,10 +317,10 @@ class MachineLog():
                             try:
                                 record_file_df['TIME'] = pd.to_datetime(record_file_df['TIME'], dayfirst=True)  # datetime index --> chronological order
                                 charge_col = pd.Series(record_file_df['DOSE_PRIM(C)'])                          # ion dose [C], to be converted in MU
-                                current_col = pd.Series(record_file_df['BEAMCURRENT(V)'])                       # beam current, measured as voltage at ... ?
+                                current_col = pd.Series(record_file_df['DOSE_RATE_PRIM(A)'])                       # beam current, measured as voltage at ... ?
                                 record_file_df = record_file_df.loc[:, :'Y_POSITION(mm)']                       # slice dataframe, drop redundant columns
                                 record_file_df['DOSE_PRIM(C)'] = charge_col
-                                record_file_df['BEAMCURRENT(V)'] = current_col
+                                record_file_df['BEAMCURRENT(A)'] = current_col
                                 try:
                                     record_file_df.drop(record_file_df[record_file_df['SUBMAP_NUMBER'] < 0].index, inplace=True)  # if split record file, nothing serious
                                 except: pass
@@ -358,7 +358,7 @@ class MachineLog():
                                 # average over all spot entries for most accurate position/shape (recommended by IBA)                                
                                 mean_xpos = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_POSITION(mm)']].mean().iloc[0]
                                 mean_ypos = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POSITION(mm)']].mean().iloc[0]
-                                beam_curr = record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (record_file_df['BEAMCURRENT(V)'] > 0), ['BEAMCURRENT(V)']].median().iloc[0]     # last entry always drops to 0, distorts mean
+                                beam_curr = record_file_df.loc[(record_file_df['SUBMAP_NUMBER'] == current_spot_submap) & (record_file_df['BEAMCURRENT(A)'] > 0), ['BEAMCURRENT(A)']].median().iloc[0]     # last entry always drops to 0, distorts mean
                                                                                                                                                                 # current is also reduced (~0.5) in case of light (<4ms) spots
                                 if current_spot_id != 0:
                                     if abs(mean_xpos - previous_xpos) < 1 and abs(mean_ypos - previous_ypos) < 1:  # proximity check for split spots (in case of high MU), custom tolerance 1mm
@@ -379,13 +379,13 @@ class MachineLog():
                                     record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_POS_IC23(mm)']] = mean_ypos
                                     record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_WID_IC23(mm)']] = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['X_WIDTH(mm)']].mean().iloc[0]
                                     record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_WID_IC23(mm)']] = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['Y_WIDTH(mm)']].mean().iloc[0]
-                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['BEAM_CURRENT(V)']] = beam_curr
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == current_spot_submap, ['BEAM_CURRENT(A)']] = beam_curr
 
                                 previous_xpos, previous_ypos, previous_spot_submap = mean_xpos, mean_ypos, current_spot_submap
                                 current_spot_submap = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] > current_spot_submap]['SUBMAP_NUMBER'].min()  # proceed to next submap
                                 if not split_spot: current_spot_id += 1  # keep track of spot id
                             
-                            record_file_df.drop(columns=['DOSE_PRIM(C)', 'BEAMCURRENT(V)'], inplace=True)
+                            record_file_df.drop(columns=['DOSE_PRIM(C)', 'BEAMCURRENT(A)'], inplace=True)
                             record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entry for each spot
                             record_file_df.index = record_file_df['TIME']  # change to datetime index AFTER filtering, timestamp is NOT unique!
                             record_file_df.drop(columns=['TIME', 'SUBMAP_NUMBER'], inplace=True)
@@ -772,12 +772,24 @@ class MachineLog():
                                 continue
                             
                             record_file_df = record_file_df.loc[(record_file_df['X_POSITION(mm)'] != -10000.0) & (record_file_df['Y_POSITION(mm)'] != -10000.0)]  # drop redundant rows
-                            for submap in record_file_df['SUBMAP_NUMBER'].drop_duplicates():
+                            for i, submap in enumerate(record_file_df['SUBMAP_NUMBER'].drop_duplicates()):
                                 submap_df = record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap]
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap, ['X_POS_IC23(mm)']] = submap_df['X_POSITION(mm)'].mean()
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap, ['Y_POS_IC23(mm)']] = submap_df['Y_POSITION(mm)'].mean()
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap, ['X_WID_IC23(mm)']] = submap_df['X_WIDTH(mm)'].mean()
-                                record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap, ['Y_WID_IC23(mm)']] = submap_df['Y_WIDTH(mm)'].mean()
+                                x_pos, y_pos, x_wid, y_wid = submap_df['X_POSITION(mm)'].mean(), submap_df['Y_POSITION(mm)'].mean(), submap_df['X_WIDTH(mm)'].mean(), submap_df['Y_WIDTH(mm)'].mean()
+                                if i > 0 and abs(prev_x - x_pos) < 2 and abs(prev_y - y_pos) < 2:
+                                    # print('  /!\ Split spot detected', abs(record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == prev_submap, 'X_POSITION(mm)'].mean() - x_pos))
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == prev_submap, ['X_POS_IC23(mm)']] = x_pos
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == prev_submap, ['Y_POS_IC23(mm)']] = y_pos
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == prev_submap, ['X_WID_IC23(mm)']] = x_wid
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == prev_submap, ['Y_WID_IC23(mm)']] = y_wid
+                                    record_file_df.drop(record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap].index, inplace=True)
+                                else:
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap, ['X_POS_IC23(mm)']] = x_pos
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap, ['Y_POS_IC23(mm)']] = y_pos
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap, ['X_WID_IC23(mm)']] = x_wid
+                                    record_file_df.loc[record_file_df['SUBMAP_NUMBER'] == submap, ['Y_WID_IC23(mm)']] = y_wid
+
+                                prev_submap = submap
+                                prev_x, prev_y = x_pos, y_pos
 
                             record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entries for each spot (most accurate)
                             record_file_df.index = record_file_df['TIME']   
@@ -1221,7 +1233,7 @@ class MachineLog():
 
             axs[layer_id].plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Planned')
             # MU colour coding still bugged, needs deltaframe for functionality
-            axs[layer_id].scatter(*zip(*spot_points_sorted), c=spot_mu_delta, cmap='bwr', vmin=-0.1, vmax=0.1, edgecolors='black', linewidths=0.2, s=7, label='Log-file sorted')
+            axs[layer_id].scatter(*zip(*spot_points_sorted), c=spot_mu_delta, cmap='bwr', vmin=-0.1, vmax=0.1, edgecolors='black', linewidths=0.2, s=7, label='Log-file sorted', zorder=5)
             axs[layer_id].plot(*zip(*spot_points_sorted), marker='None', linestyle='-', lw=0.2, color='black')
             # axs[layer_id].plot(*zip(*spot_points_log), marker='o', markerfacecolor='None', linestyle='--', color='black', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Log-file original')
             axs[layer_id].plot(*zip(*tuning_points_log), marker='o', markerfacecolor='None', linestyle='None', markersize=2.0, markeredgewidth=0.2, color='limegreen', label='Tuning spot(s)')
@@ -2062,13 +2074,16 @@ class MachineLog():
                 ds.IonBeamSequence[i] = plan_beam
             
             ds.FractionGroupSequence[0].NumberOfFractionsPlanned = 1
-            sop_uid = str(ds.SOPInstanceUID).split('.')
-            sop_uid[-1] = '99999'
-            new_sop_uid = '.'.join(sop_uid)
-            ds.SOPInstanceUID = new_sop_uid
+            sop_instance = str(ds.SOPInstanceUID).split('.')
+            sop_instance[-1] = '99999'
+            new_sop_instance = '.'.join(sop_instance)
+            ds.SOPInstanceUID = new_sop_instance
+            
             if not ds.RTPlanName.__contains__('log'):
-                ds.RTPlanName += f'_LOG_{fx_id}_{mode}'
-            ds.RTPlanLabel = ds.RTPlanName
+                ds.RTPlanLabel = f'(RPR)-{fx_id}-' + ds.RTPlanName.strip('_unapprove')
+                ds.RTPlanName = ds.RTPlanName.strip('_unapprove') + f'_LOG_{fx_id}_{mode}'
+            ds.StudyDate = pd.to_datetime(fx_id).date()
+
             # ds.ReferringPhysicianName = 'Wolter^Lukas'
             ds.ApprovalStatus = 'UNAPPROVED'
 
@@ -2492,7 +2507,7 @@ class MachineLog():
         out = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports'
         plt.tight_layout()
         plt.savefig(os.path.join(out, f'{id}_sss_hist.png'), dpi=300)
-        # plt.show()
+        plt.show()
 
 
     def sss_boxplot(self):
@@ -2565,7 +2580,74 @@ class MachineLog():
         plt.tight_layout
         plt.savefig(os.path.join(out, 'boxplots_angular.png'), dpi=300)
         # plt.show()
+    
+    def split_sigma(self):
+        out = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports'
+
+        # locate existing dataframe
+        single_stats_exists = False
+        for file in sorted(os.listdir(self.df_destination)):
+            if file.__contains__(str(self.patient_id)) and file.__contains__('sss_data') and file.endswith('.csv'):
+                print(f'''Found patient spot statistics data '{file}', reading in..''')
+                self.patient_sss_df = pd.read_csv(os.path.join(self.df_destination, file), dtype={'BEAM_ID':str})
+                single_stats_exists = True
+
+        if not single_stats_exists:
+            print(f'/x\ No single spot statistics data found for patient-ID {self.patient_id}, exiting..')
+            return None
+        
+        if self.patient_id == "280735":
+            split_at = 0.15
+        elif self.patient_id ==  "1367926":
+            split_at = 0.2  # mm
+
+        self.patient_sss_df['BEYOND_SPLIT'] = 0
+        self.patient_sss_df.loc[(self.patient_sss_df['DELTA_X(mm)_STD'] > split_at), 'BEYOND_SPLIT'] = 1
+        
+        # sns.set()
+        for beam_id in self.patient_sss_df.BEAM_ID.drop_duplicates():
+            beam_df = self.patient_sss_df.loc[self.patient_sss_df.BEAM_ID == beam_id]
+            below, above = beam_df.loc[beam_df.BEYOND_SPLIT == 0], beam_df.loc[beam_df.BEYOND_SPLIT == 1]
+
+            dim = int(np.ceil(np.sqrt(len(beam_df.LAYER_ID.drop_duplicates()))))
+            fig, axs = plt.subplots(dim, dim, figsize=(10, 10), sharex=True, sharey=True, dpi=130)
+            ax0 = fig.add_subplot(111, frameon=False)
+            fig.subplots_adjust(hspace=0.0, wspace=0.0)
+            axs = axs.flatten()
+
+            for i, layer_id in enumerate(beam_df.LAYER_ID.drop_duplicates()):
+                layer_df = beam_df.loc[beam_df.LAYER_ID == layer_id]
+                axs[i].plot(layer_df.loc[layer_df.BEYOND_SPLIT == 0, 'X_POSITION(mm)'], layer_df.loc[layer_df.BEYOND_SPLIT == 0, 'Y_POSITION(mm)'], 'o', color='tab:green', label=f'$\sigma \leq$ {split_at}mm')
+                axs[i].plot(layer_df.loc[layer_df.BEYOND_SPLIT == 1, 'X_POSITION(mm)'], layer_df.loc[layer_df.BEYOND_SPLIT == 1, 'Y_POSITION(mm)'], 'o', color='red', label=f'$\sigma >$ {split_at}mm')
+                axs[i].annotate(f"$E =$ {np.round(layer_df['LAYER_ENERGY(MeV)'].iloc[0], 1)}MeV", xy=(5, 5), xycoords='axes pixels')
+                axs[i].grid()
+                if i == 0:
+                    axs[i].legend()
+            
+            ax0.set_xlabel('X position (mm)')
+            ax0.set_ylabel('Y position (mm)')
+            fig.suptitle(f'PATIENT {self.patient_id} (PROSTATE) - BEAM {beam_id} ({beam_df.GANTRY_ANGLE.iloc[0]})', fontweight='bold')
+            plt.tight_layout()
+            plt.savefig(os.path.join(out, f'{self.patient_id}_beam_{beam_id}_sigma_spotmap.png'), dpi=300)
+            # plt.show()
                 
+            continue
+            
+            fig, axs = plt.subplots(2, 1, figsize=(8, 10), sharex=True, sharey=True)
+            # cols = ['DELTA_X(mm)_MEAN', 'DELTA_X(mm)_STD']
+            # cols = ['MU', 'LAYER_ENERGY(MeV)']
+            cols = ['LAYER_ENERGY(MeV)']
+            h1 = sns.histplot(below[cols], ax=axs[0], kde=True)
+            h2 = sns.histplot(above[cols], ax=axs[1], kde=True)
+            # for ax in axs:
+            #     ax.axvline(split_at, color='tab:orange')
+
+            fig.suptitle(f'Beam {beam_df.BEAM_ID.iloc[0]} - {beam_df.GANTRY_ANGLE.iloc[0]}°', fontweight='bold')
+            axs[0].set_title(f'$\sigma \leq$ 0.18')
+            axs[1].set_title(f'$\sigma >$ 0.18')
+            plt.tight_layout()
+            plt.show()
+        
 
 if __name__ == '__main__':
     root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
@@ -2580,20 +2662,24 @@ if __name__ == '__main__':
     #     log.prepare_dataframe()
     #     log.prepare_dataframe()
 
+    # log = MachineLog(root_dir)
+    # log.prepare_qa_dataframe()
+
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
     for id in ponaqua_qualified:
-        if id != "1180747": continue
+        if id not in ["671075"]: continue  # prostate only
         # if int(id) in [1663630, 671075, 1230180, 1635796, 1683480]: continue
         log = MachineLog(os.path.join(root_dir, id))
         # log.prepare_dataframe()
         # log.prepare_deltaframe()
-        log.prepare_sss_dataframe()
+        # log.prepare_sss_dataframe()
         # log.sss_histograms()
+        # log.split_sigma()
         # log.plot_beam_layers()
         # log.sss_boxplot()
-        # log.plan_creator(fraction='all', mode='all')
+        log.plan_creator(fraction='all', mode='all')
 
-        # continue
+        continue
         sns.set()
         log.patient_sss_df.reset_index(drop=True, inplace=True)
         log.patient_sss_df.dropna(inplace=True)
