@@ -656,11 +656,10 @@ class MachineLog():
         # allowed beam parameters
         qa_energies = [100., 120., 140., 165., 185., 205., 226.7]
         qa_angles = np.linspace(0., 360., 8, endpoint=False)
-        qa_spots = [18, 22]
         qa_xy = [0., 30., 60., 120.]
         qa_xy += [- xy for xy in qa_xy]
 
-        print(f'\nMining semi-annual spot-QA data..')
+        print(f'\nMining biannual spot-QA data..')
         self.qa_record_df = pd.DataFrame()  # overwrite stored df's
         for fraction_no, fraction_id in enumerate(self.fraction_list):
             num_beams = len(self.beam_list[fraction_no])
@@ -688,7 +687,7 @@ class MachineLog():
                 if len(map_records) == 0:
                     print(f'  /!\ Skipping fraction-ID {fraction_id} beam-ID {beam_id}')
                     continue
-                
+                                
                 num_layers = max([int(fname.split('_')[2].split('.')[0].split('_')[0]) + 1 for fname in map_records])
 
                 with open(beam_file, 'r') as beam_file:  # draw beam specs from *_beam.csv
@@ -699,7 +698,7 @@ class MachineLog():
 
                     beam_file.close()
                 
-                if not gantry_angle in qa_angles:
+                if not np.round(gantry_angle, 0) in qa_angles:
                     continue
 
                 with open(beam_config, 'r') as beam_config:  # draw machine parameters from *beam_config.csv
@@ -792,11 +791,11 @@ class MachineLog():
                                 prev_x, prev_y = x_pos, y_pos
 
                             record_file_df.drop_duplicates(subset=['SUBMAP_NUMBER'], keep='last', inplace=True)  # keep only last entries for each spot (most accurate)
+                            if record_file_df.empty:
+                                continue
+
                             record_file_df.index = record_file_df['TIME']   
                             record_file_df.drop(columns=['TIME'], inplace=True)
-
-                            if not len(record_file_df[['X_POSITION(mm)', 'Y_POSITION(mm)']].drop_duplicates()) in qa_spots:
-                                continue
                             
                             for specif_file in record_specifs:  # draw machine parameters from *map_specif*.csv
                                 if int(specif_file.split('_')[2].split('.')[0].split('_')[0]) == layer_id:
@@ -821,6 +820,15 @@ class MachineLog():
                             # record_file_df['X_WID_IC23(mm)'], record_file_df['Y_WID_IC23(mm)'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
                             record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
                             record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
+
+                            valid_spots = True
+                            for (x, y) in zip(np.round(record_file_df['X_POSITION(mm)'], -1), np.round(record_file_df['Y_POSITION(mm)'], -1)):
+                                if not x in qa_xy or y not in qa_xy:
+                                    valid_spots = False
+                                    break
+
+                            if not valid_spots: continue
+
                             record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID_IC23(mm)']].apply(map_spot_width, args=(sad_x, ictoiso_x))
                             record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID_IC23(mm)']].apply(map_spot_width, args=(sad_y, ictoiso_y))
                             record_file_df.drop(columns=['X_POS_IC23(mm)', 'Y_POS_IC23(mm)', 'X_WID_IC23(mm)', 'Y_WID_IC23(mm)'], inplace=True)
@@ -849,7 +857,6 @@ class MachineLog():
                     layer_df['X_ROUND'] = np.round(layer_df['X_POSITION(mm)'], -1)
                     layer_df['Y_ROUND'] = np.round(layer_df['Y_POSITION(mm)'], -1)  
                     layer_df['E_ROUND'] = np.round(layer_df['LAYER_ENERGY(MeV)'], 1)                
-                    layer_df = layer_df.loc[layer_df['X_ROUND'].isin(qa_xy) & layer_df['Y_ROUND'].isin(qa_xy)]
                     layer_df['DELTA_X(mm)'] = layer_df['X_POSITION(mm)'] - layer_df['X_ROUND']
                     layer_df['DELTA_Y(mm)'] = layer_df['Y_POSITION(mm)'] - layer_df['Y_ROUND']
                     layer_df['LAYER_ENERGY(MeV)'] = layer_df['E_ROUND']
@@ -865,7 +872,7 @@ class MachineLog():
                     print('  ', '[' + (beam_no + 1) * char + (num_beams - beam_no - 1) * '-' + ']', end=f' Fraction {fraction_id} complete\n')
                 else:
                     print('  ', '[' + (beam_no + 1) * char + (num_beams - beam_no - 1) * '-' + ']', end=f' Beam {str(beam_no + 1).zfill(2)}/{str(num_beams).zfill(2)}\r')
-                
+                                    
                 no_exceptions = True
 
                 # remove temporary files
@@ -1921,6 +1928,8 @@ class MachineLog():
 
 
     def plan_creator(self, fraction, mode):
+        log_xlim = 150  # mm half maximum field extent
+        log_ylim = 193
         if fraction == 'last':
             fx_list = [self.fraction_list[-1]]
         elif fraction == 'all':
@@ -1962,8 +1971,16 @@ class MachineLog():
 
                     # generate spot position list equal to DICOM tag --> [x1, y1, x2, y2, ..]
                     for log_spot in range(len(layer_df['X_POSITION(mm)'].to_list())):
-                        layer_xy.append(layer_df['X_POSITION(mm)'][log_spot])
-                        layer_xy.append(layer_df['Y_POSITION(mm)'][log_spot])
+                        x = layer_df['X_POSITION(mm)'][log_spot]
+                        y = layer_df['Y_POSITION(mm)'][log_spot]
+                        if abs(x) > log_xlim:
+                            print(f'  /!\ X-limit exceeded by {abs(x) - log_xlim}mm - Spot-ID in Fx-ID {fx_id} beam {beam_id} layer {layer_id}, setting spot to border of field..')
+                            x = np.sign(x) * log_xlim
+                        if abs(y) > log_ylim:
+                            print(f'  /!\ Y-limit exceeded by {abs(y) - log_ylim}mm - Spot-ID in Fx-ID {fx_id} beam {beam_id} layer {layer_id}, setting spot to border of field..')
+                            y = np.sign(y) * log_ylim
+                        layer_xy.append(x)
+                        layer_xy.append(y)
                         layer_mu.append(layer_df['MU'][log_spot])
                     for tune_spot in range(len(tuning_df['X_POSITION(mm)'].to_list())):
                         tuning_xy.append(tuning_df['X_POSITION(mm)'][tune_spot])
@@ -2596,36 +2613,41 @@ class MachineLog():
             print(f'/x\ No single spot statistics data found for patient-ID {self.patient_id}, exiting..')
             return None
         
-        if self.patient_id == "280735":
-            split_at = 0.15
-        elif self.patient_id ==  "1367926":
-            split_at = 0.2  # mm
+        # if self.patient_id == "280735":
+        #     split_at = 0.15
+        # elif self.patient_id ==  "1367926":
+        #     split_at = 0.2  # mm
 
-        self.patient_sss_df['BEYOND_SPLIT'] = 0
-        self.patient_sss_df.loc[(self.patient_sss_df['DELTA_X(mm)_STD'] > split_at), 'BEYOND_SPLIT'] = 1
+        # self.patient_sss_df['BEYOND_SPLIT'] = 0
+        # self.patient_sss_df.loc[(self.patient_sss_df['DELTA_X(mm)_STD'] > split_at), 'BEYOND_SPLIT'] = 1
         
-        # sns.set()
+        sns.set()
         for beam_id in self.patient_sss_df.BEAM_ID.drop_duplicates():
             beam_df = self.patient_sss_df.loc[self.patient_sss_df.BEAM_ID == beam_id]
-            below, above = beam_df.loc[beam_df.BEYOND_SPLIT == 0], beam_df.loc[beam_df.BEYOND_SPLIT == 1]
 
             dim = int(np.ceil(np.sqrt(len(beam_df.LAYER_ID.drop_duplicates()))))
-            fig, axs = plt.subplots(dim, dim, figsize=(10, 10), sharex=True, sharey=True, dpi=130)
+            if dim == 0:
+                print(beam_id)
+                continue
+            fig, axs = plt.subplots(dim, dim, figsize=(10, 10), sharex=True, sharey=True, dpi=100)
             ax0 = fig.add_subplot(111, frameon=False)
+            ax0.set_xticks([]), ax0.set_yticks([])
             fig.subplots_adjust(hspace=0.0, wspace=0.0)
             axs = axs.flatten()
 
             for i, layer_id in enumerate(beam_df.LAYER_ID.drop_duplicates()):
                 layer_df = beam_df.loc[beam_df.LAYER_ID == layer_id]
-                axs[i].plot(layer_df.loc[layer_df.BEYOND_SPLIT == 0, 'X_POSITION(mm)'], layer_df.loc[layer_df.BEYOND_SPLIT == 0, 'Y_POSITION(mm)'], 'o', color='tab:green', label=f'$\sigma \leq$ {split_at}mm')
-                axs[i].plot(layer_df.loc[layer_df.BEYOND_SPLIT == 1, 'X_POSITION(mm)'], layer_df.loc[layer_df.BEYOND_SPLIT == 1, 'Y_POSITION(mm)'], 'o', color='red', label=f'$\sigma >$ {split_at}mm')
+                sns.scatterplot(data=layer_df, x='X_POSITION(mm)', y='Y_POSITION(mm)', hue='DELTA_X(mm)_STD', size='MU', ax=axs[i], legend=None, palette='YlOrBr')
                 axs[i].annotate(f"$E =$ {np.round(layer_df['LAYER_ENERGY(MeV)'].iloc[0], 1)}MeV", xy=(5, 5), xycoords='axes pixels')
-                axs[i].grid()
-                if i == 0:
-                    axs[i].legend()
+                # axs[i].grid()
+                axs[i].set_xlabel(None), axs[i].set_ylabel(None)
+                # if i != 0:
+                #     axs[i].get_legend().remove()
             
-            ax0.set_xlabel('X position (mm)')
-            ax0.set_ylabel('Y position (mm)')
+            # sns.move_legend(axs[0], "upper right", bbox_to_anchor=(0, 1))
+            
+            ax0.set_xlabel('X position (mm)', labelpad=30)
+            ax0.set_ylabel('Y position (mm)', labelpad=30)
             fig.suptitle(f'PATIENT {self.patient_id} (PROSTATE) - BEAM {beam_id} ({beam_df.GANTRY_ANGLE.iloc[0]})', fontweight='bold')
             plt.tight_layout()
             plt.savefig(os.path.join(out, f'{self.patient_id}_beam_{beam_id}_sigma_spotmap.png'), dpi=300)
@@ -2667,7 +2689,7 @@ if __name__ == '__main__':
 
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
     for id in ponaqua_qualified:
-        if id not in ["671075"]: continue  # prostate only
+        # if id not in ["1635796"]: continue#"280735", "1367926"]: continue  # prostate only
         # if int(id) in [1663630, 671075, 1230180, 1635796, 1683480]: continue
         log = MachineLog(os.path.join(root_dir, id))
         # log.prepare_dataframe()
