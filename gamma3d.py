@@ -40,7 +40,7 @@ def gamma_3d(dpt, dta, path_to_ref, path_to_eval, cutoff=10, interp=10, max=1.1)
         lower_percent_dose_cutoff,
         interp_fraction,
         maximum_gamma,
-        quiet=True
+        quiet=False
     )
 
     # Filter the gamma index matrix to remove noise
@@ -91,7 +91,7 @@ def full_eval(id):
         plan_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\DeliveredPlans'
 
         print(f'>>> START ID {id}')
-        doses = os.path.join(plan_dir, id, 'Doses')
+        doses = os.path.join(plan_dir, id, 'Doses\Water')
         log_dir = os.path.join(root_dir, '..', 'extracted')
         for file in os.listdir(log_dir):
             if file.__contains__(str(id)) and file.__contains__('record') and file.endswith('csv'):
@@ -191,7 +191,7 @@ def full_eval(id):
                 written = False
                 while not written:
                     try: 
-                        target_df.to_csv(os.path.join(doses, f'{id}_3Dgamma.csv'))               
+                        target_df.to_csv(os.path.join(doses, f'{id}_H2O_3Dgamma.csv'))               
                         break
                     except PermissionError:
                         input(f'  /!\ Permission denied for target CSV, close file..')
@@ -209,7 +209,8 @@ if __name__ == '__main__':
     for id in ponaqua_qualified:
         if int(id) in [671075,1230180,1635796,1683480,1676596,280735,1367926]:
             ponaqua_qualified.remove(id) 
-    to_do = ["1632783", "1180747"]        
+            
+    to_do = ["1669130"]        
     parallelize(to_do)
 
     # ref = os.path.join(root_dir, 'RD_R1_HNO.dcm')
