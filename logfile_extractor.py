@@ -815,11 +815,10 @@ class MachineLog():
                                 continue
                             
                             # coordinate system transform iba <-> raystation (x <-> y)
+                            # further change x -> -y, y -> x : Lynx rotated 90° ccw when attached to nozzle holder
                             record_file_df.drop_duplicates(subset=['X_POSITION(mm)', 'Y_POSITION(mm)'], inplace=True)
-                            # record_file_df['X_POS_IC23(mm)'], record_file_df['Y_POS_IC23(mm)'] = record_file_df['X_POSITION(mm)'], record_file_df['Y_POSITION(mm)']
-                            # record_file_df['X_WID_IC23(mm)'], record_file_df['Y_WID_IC23(mm)'] = record_file_df['X_WIDTH(mm)'], record_file_df['Y_WIDTH(mm)']
-                            record_file_df['X_POSITION(mm)'] = record_file_df[['Y_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
-                            record_file_df['Y_POSITION(mm)'] = record_file_df[['X_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
+                            record_file_df['Y_POSITION(mm)'] = record_file_df[['Y_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_x, sad_x, ictoiso_x))
+                            record_file_df['X_POSITION(mm)'] = - record_file_df[['X_POS_IC23(mm)']].apply(map_spot_pos, args=(ic_offset_y, sad_y, ictoiso_y))
 
                             valid_spots = True
                             for (x, y) in zip(np.round(record_file_df['X_POSITION(mm)'], -1), np.round(record_file_df['Y_POSITION(mm)'], -1)):
@@ -828,13 +827,25 @@ class MachineLog():
                                     break
 
                             if not valid_spots: continue
-
-                            record_file_df['X_WIDTH(mm)'] = record_file_df[['Y_WID_IC23(mm)']].apply(map_spot_width, args=(sad_x, ictoiso_x))
-                            record_file_df['Y_WIDTH(mm)'] = record_file_df[['X_WID_IC23(mm)']].apply(map_spot_width, args=(sad_y, ictoiso_y))
+                            
+                            # change x_width <-> y_width : Lynx rotated 90° ccw when attached to nozzle holder
+                            record_file_df['Y_WIDTH(mm)'] = record_file_df[['Y_WID_IC23(mm)']].apply(map_spot_width, args=(sad_x, ictoiso_x))
+                            record_file_df['X_WIDTH(mm)'] = record_file_df[['X_WID_IC23(mm)']].apply(map_spot_width, args=(sad_y, ictoiso_y))
                             record_file_df.drop(columns=['X_POS_IC23(mm)', 'Y_POS_IC23(mm)', 'X_WID_IC23(mm)', 'Y_WID_IC23(mm)'], inplace=True)
                             record_file_df['DIST_TO_ISO(mm)'] = np.sqrt(np.square(record_file_df['X_POSITION(mm)']) + np.square(record_file_df['Y_POSITION(mm)']))
-                            record_file_df.reindex()  # make sure modified layer df is consistent with indexing
-                            to_do_layers.append(record_file_df)
+                            record_file_df.reindex()
+                            
+                            if len(to_do_layers) > 0:
+                                previous_record_file_df = to_do_layers[-1]
+                                prev_x_last, prev_y_last = previous_record_file_df['X_POSITION(mm)'].iloc[-1], previous_record_file_df['Y_POSITION(mm)'].iloc[-1]
+                                this_x_first, this_y_first = record_file_df['X_POSITION(mm)'].iloc[0], record_file_df['Y_POSITION(mm)'].iloc[0]
+
+                                # check proximity to last spot entry of previous file (if same coordinates, spot is split over 2 files)
+                                if abs(this_x_first - prev_x_last) < 1 and abs(this_y_first - prev_y_last) < 1:  
+                                    print(f'''  /!\ Last spot of layer-ID {layer_id} split over 2 files, merging..''')
+                                    record_file_df = record_file_df.iloc[1:]  # drop first entry of current file
+
+                            if not record_file_df.empty: to_do_layers.append(record_file_df)  # if only spot was deleted in previous step
                     
                     if len(to_do_layers) > 0:  # can be zero, if only one spot in layer and omitted by high-weighted tuning
                         layer_df = pd.concat(to_do_layers)  # concatenate layers, assign additional columns
@@ -885,7 +896,7 @@ class MachineLog():
 
         # write out as .csv
         os.chdir(self.df_destination)
-        self.record_df_name = 'QA_2017-2022_records_data.csv'
+        self.record_df_name = 'QA_2017-2023_records_data.csv'
         
         print(f'''  ..Writing dataframe to '{self.df_destination}' as .CSV.. ''')
         while True:   
@@ -895,7 +906,7 @@ class MachineLog():
             except PermissionError:
                 input('  Permission denied, close target file and press ENTER.. ')
 
-        self.qa_record_df = pd.read_csv('QA_2017-2022_records_data.csv', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+        self.qa_record_df = pd.read_csv('QA_2017-2023_records_data.csv', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
         print('Complete')
     
 
@@ -1208,6 +1219,8 @@ class MachineLog():
             dcm_layer = beam_ds.IonControlPointSequence[layer_id * 2]
             plan_spotmap = dcm_layer.ScanSpotPositionMap
             plan_mu = dcm_layer.ScanSpotMetersetWeights
+            if type(plan_mu) == float:
+                plan_mu = [plan_mu]
             plan_x_positions, plan_y_positions = [], []
             for i, coord in enumerate(plan_spotmap):
                 if i % 2 == 0:
@@ -2528,8 +2541,10 @@ class MachineLog():
 
 
     def sss_boxplot(self):
-        from matplotlib.patches import Patch
+        from matplotlib.patches import Patch, FancyBboxPatch, BoxStyle
+        from matplotlib.lines import Line2D
         out = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports'
+        ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
 
         # boxplots (all patient with sss data)
         sss_files = [file for file in os.listdir(self.df_destination) if file.__contains__('_sss_') and file.endswith('.csv')]
@@ -2546,6 +2561,52 @@ class MachineLog():
             n_fields += len(df.loc[df.PATIENT_ID == id, 'BEAM_ID'].drop_duplicates())
         
         sns.set()
+        for gtr in df.GANTRY_ANGLE.drop_duplicates():
+            gtr_df = df.loc[df.GANTRY_ANGLE == gtr]
+            df.loc[df.GANTRY_ANGLE == gtr, 'MEDIAN_X_STD'] = gtr_df['DELTA_X(mm)_STD'].median()
+            df.loc[df.GANTRY_ANGLE == gtr, 'MEDIAN_Y_STD'] = gtr_df['DELTA_Y(mm)_STD'].median()
+            df.loc[df.GANTRY_ANGLE == gtr, 'MEDIAN_MU_STD'] = gtr_df['DELTA_MU_STD'].median()
+        # df.reset_index(inplace=True)
+
+        # print('Max standard error:', 'x:', df['DELTA_X(mm)_MEAN'].max(), 'mm, y:', df['DELTA_Y(mm)_MEAN'].max(), 'mm, MU:', df['DELTA_MU_MEAN'].max(),  df.loc[df['DELTA_MU_MEAN'].idxmax(), 'DELTA_MU_REL_MEAN']*100, '%')
+        # print('Max variance:', 'x:', df['DELTA_X(mm)_STD'].max(), 'mm, y:', df['DELTA_Y(mm)_STD'].max(), 'mm, MU:', df['DELTA_MU_STD'].max(), df.loc[df['DELTA_MU_STD'].idxmax(), 'DELTA_MU_REL_STD']*100, '%')
+        # print('ACCURACY: Median x-pos:', df['DELTA_X(mm)_MEAN'].median(), f'''(range {df['DELTA_X(mm)_MEAN'].min()} ... {df['DELTA_X(mm)_MEAN'].max()})''', 'Median y-pos:', df['DELTA_Y(mm)_MEAN'].median(), f'''(range {df['DELTA_Y(mm)_MEAN'].min()} ... {df['DELTA_Y(mm)_MEAN'].max()})''', 'Median MU:', df['DELTA_MU_MEAN'].median(), f'''(range {df['DELTA_MU_MEAN'].min()} ... {df['DELTA_MU_MEAN'].max()})''')
+        # print('PRECSISION: Median x-pos:', df['DELTA_X(mm)_STD'].median(), f'''(range {df['DELTA_X(mm)_STD'].min()} ... {df['DELTA_X(mm)_STD'].max()})''', 'Median y-pos:', df['DELTA_Y(mm)_STD'].median(), f'''(range {df['DELTA_Y(mm)_STD'].min()} ... {df['DELTA_Y(mm)_STD'].max()})''', 'Median MU:', df['DELTA_MU_STD'].median(), f'''(range {df['DELTA_MU_STD'].min()} ... {df['DELTA_MU_STD'].max()})''')
+        # print('ACCURACY: mean x-pos:', df['DELTA_X(mm)_MEAN'].mean(), '+-', df['DELTA_X(mm)_MEAN'].std(),  'mean y-pos:', df['DELTA_Y(mm)_MEAN'].mean(), '+-', df['DELTA_Y(mm)_MEAN'].std(), 'mean MU:', df['DELTA_MU_MEAN'].mean(), '+-', df['DELTA_MU_MEAN'].std(),)
+        # print('PRECISION: mean x-pos:', df['DELTA_X(mm)_STD'].mean(), '+-', df['DELTA_X(mm)_STD'].std(), 'mean y-pos:', df['DELTA_Y(mm)_STD'].mean(), '+-', df['DELTA_Y(mm)_STD'].std(), 'mean MU:', df['DELTA_MU_STD'].mean(), '+-', df['DELTA_MU_STD'].std())
+        df['DELTA_DIST_MEAN'] = np.sqrt(df['DELTA_X(mm)_MEAN'] ** 2 + df['DELTA_Y(mm)_MEAN'] ** 2)
+        df['DELTA_DIST_STD'] = np.sqrt(df['DELTA_X(mm)_STD'] ** 2 + df['DELTA_Y(mm)_STD'] ** 2)
+        # df['DELTA_DIST_STD'] = np.sqrt((df['DELTA_X(mm)_MEAN'] ** 2) / (df['DELTA_X(mm)_MEAN'] ** 2 + df['DELTA_Y(mm)_MEAN'] ** 2) * df['DELTA_X(mm)_STD'] ** 2 + 
+        #                                (df['DELTA_Y(mm)_MEAN'] ** 2) / (df['DELTA_X(mm)_MEAN'] ** 2 + df['DELTA_Y(mm)_MEAN'] ** 2) * df['DELTA_Y(mm)_STD'] ** 2)
+
+        for i, patient in enumerate(ponaqua_qualified):
+            pdf = df.loc[df.PATIENT_ID == int(patient)]
+            print(i + 1, patient, len(pdf))
+            # x_min, x_max = pdf['DELTA_X(mm)_MEAN'].min(), pdf['DELTA_X(mm)_MEAN'].max()
+            # y_min, y_max = pdf['DELTA_Y(mm)_MEAN'].min(), pdf['DELTA_Y(mm)_MEAN'].max()
+            # if abs(x_min) > abs(x_max):
+            #     worst_x = x_min
+            # else:
+            #     worst_x = x_max
+            
+            # if abs(y_min) > abs(y_max):
+            #     worst_y = y_min
+            # else:
+            #     worst_y = y_max
+            # print('\tGenauigk. x: mean (worst)', np.round(pdf['DELTA_X(mm)_MEAN'].mean(), 1), f'({np.round(worst_x, 1)})')
+            # print('\tGenauigk. y: mean (worst)', np.round(pdf['DELTA_Y(mm)_MEAN'].mean(), 1), f'({np.round(worst_y, 1)})')
+            # print('\tReprod. x: mean (worst)', np.round(pdf['DELTA_X(mm)_STD'].mean(), 1), f"({np.round(pdf['DELTA_X(mm)_STD'].max(), 1)})")
+            # print('\tReprod. y: mean (worst)', np.round(pdf['DELTA_Y(mm)_STD'].mean(), 1), f"({np.round(pdf['DELTA_Y(mm)_STD'].max(), 1)})")
+
+            patient_mean_dist = np.sqrt(pdf['DELTA_X(mm)_MEAN'].mean() ** 2 + pdf['DELTA_Y(mm)_MEAN'].mean() ** 2)
+            print('\tGenauigkeit: mean (worst)', np.round(patient_mean_dist, 1), f"({np.round(pdf['DELTA_DIST_MEAN'].max(), 1)})")
+            print('\tReproduzier: mean (worst)', np.round(pdf['DELTA_DIST_STD'].mean(), 1), f"({np.round(pdf['DELTA_DIST_STD'].max(), 1)})")
+        
+        print('ALL:')
+        print('Genauigkeit:', df['DELTA_DIST_MEAN'].mean(), '+-', df['DELTA_DIST_MEAN'].std(), 'mm')
+        print('Reproduzier:', df['DELTA_DIST_STD'].mean(), '+-', df['DELTA_DIST_STD'].std(), 'mm')
+        
+        return None
 
         # correlate
         # method = 'spearman'
@@ -2568,33 +2629,39 @@ class MachineLog():
         # return None
         
         fig, axs = plt.subplots(3, 1, figsize=(10, 10))
-        fig.suptitle(f'ALL PATIENTS', fontweight='bold')
-        titles = ['X-position error', 'Y-position error', 'Dose error']
-        target_cols = [['DELTA_X(mm)_MEAN', 'DELTA_X(mm)_STD'], ['DELTA_Y(mm)_MEAN', 'DELTA_Y(mm)_STD'], ['DELTA_MU_MEAN', 'DELTA_MU_STD']]
-        legend = [Patch(facecolor='tab:blue', edgecolor='black', label='Accuracy'), Patch(facecolor='tab:orange', edgecolor='black', label='Precision')]
+        target_cols = [['DELTA_X(mm)_MEAN', 'DELTA_X(mm)_STD', 'MEDIAN_X_STD'], ['DELTA_Y(mm)_MEAN', 'DELTA_Y(mm)_STD', 'MEDIAN_Y_STD'], ['DELTA_MU_MEAN', 'DELTA_MU_STD', 'MEDIAN_MU_STD']]
+        legend = [Patch(facecolor='tab:blue', edgecolor='tab:blue', label='Single spot variance'), 
+                  Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR$_{25,75}$ & Median')]
         for i, (ax, cols) in enumerate(zip(axs, target_cols)):
-            bp1 = sns.boxplot(data=df, x=df.GANTRY_ANGLE, y=df[cols[0]], showfliers=False, ax=ax, color='tab:blue', order=np.arange(360), width=10, linewidth=1)
-            bp2 = sns.boxplot(data=df, x=df.GANTRY_ANGLE, y=df[cols[1]], showfliers=False, ax=ax, color='tab:orange', order=np.arange(360), width=10, linewidth=1)
-            holm1 = ax.fill_betweenx(x1=105, x2=130, y=[-2, 2], color='silver', edgecolor='white', hatch='//', lw=1, zorder=-10)
-            holm2 = ax.fill_betweenx(x1=235, x2=260, y=[-2, 2], color='silver', edgecolor='white', hatch='//', lw=1, zorder=-10)
+            # bp1 = sns.boxplot(data=df, x=df.GANTRY_ANGLE, y=df[cols[0]], showfliers=False, ax=ax, color='tab:blue', order=np.arange(360), width=5, linewidth=1)
+            # bp2 = sns.boxplot(data=df, x=df.GANTRY_ANGLE, y=df[cols[1]], showfliers=False, ax=ax, color='tab:orange', order=np.arange(360), width=5, linewidth=1)
+            # vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=cols[0], color='tab:blue', ax=ax, width=10, scale='width', order=np.arange(360))
+            vp2 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=cols[1], color='tab:blue', ax=ax, width=10, scale='width', order=np.arange(360))
+            for collect in ax.collections:
+                collect.set_edgecolor('None')
+            # ax.plot(df.sort_values(by='GANTRY_ANGLE').GANTRY_ANGLE.drop_duplicates(), df.sort_values(by='GANTRY_ANGLE')[cols[2]].drop_duplicates(), color='tab:orange')
+            
+            # holm1 = ax.fill_betweenx(x1=105, x2=130, y=[-2, 2], color='silver', edgecolor='white', hatch='//', lw=1, zorder=-10)
+            # holm2 = ax.fill_betweenx(x1=235, x2=260, y=[-2, 2], color='silver', edgecolor='white', hatch='//', lw=1, zorder=-10)
             if i == 2:
                 ax.set_xlabel('Gantry angle [°]')
             else:
                 ax.set_xlabel('')
             
-            ax.set_xlim(-10, 360)
-            ax.legend(handles=legend, loc='upper right', title=titles[i])
+            ax.set_xlim(-10, )
             tick_every = 45
             [tick.set_visible(False) for (i, tick) in enumerate(ax.get_xticklabels()) if i % tick_every != 0]
-
-        axs[0].set_title('Fields grouped by gantry position')
-        axs[0].set_ylim(-2, 2)
-        axs[0].set_ylabel('$\Delta X$ [mm]')
-        axs[1].set_ylim(-2, 2)
-        axs[1].set_ylabel('$\Delta Y$ [mm]')
-        axs[2].set_ylim(-0.004, 0.004)
-        axs[2].set_ylabel('$\Delta D$ [MU]')
-        plt.tight_layout
+        
+        axs[0].legend(handles=legend, loc='upper center')
+        axs[0].set_title('Treatment fields grouped by gantry position')
+        axs[0].set_ylim(0, 1)
+        axs[0].set_ylabel('$\sigma_x$ [mm]')
+        axs[1].set_ylim(0, 1)
+        axs[1].set_ylabel('$\sigma_y$ [mm]')
+        axs[2].set_ylim(0, 0.01)
+        axs[2].set_ylabel('$\sigma_D$ [MU]')
+        fig.suptitle(f'             Log-file Reproducibility', fontweight='bold')
+        plt.tight_layout()
         plt.savefig(os.path.join(out, 'boxplots_angular.png'), dpi=300)
         # plt.show()
     
@@ -2672,8 +2739,8 @@ class MachineLog():
         
 
 if __name__ == '__main__':
-    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
-    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
+    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
     # root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
@@ -2684,12 +2751,13 @@ if __name__ == '__main__':
     #     log.prepare_dataframe()
     #     log.prepare_dataframe()
 
-    # log = MachineLog(root_dir)
-    # log.prepare_qa_dataframe()
+    log = MachineLog(root_dir)
+    log.prepare_qa_dataframe()
 
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
     for id in ponaqua_qualified:
-        # if id not in ["1635796"]: continue#"280735", "1367926"]: continue  # prostate only
+        continue
+        if id not in ["1669130"]: continue
         # if int(id) in [1663630, 671075, 1230180, 1635796, 1683480]: continue
         log = MachineLog(os.path.join(root_dir, id))
         # log.prepare_dataframe()
@@ -2698,8 +2766,8 @@ if __name__ == '__main__':
         # log.sss_histograms()
         # log.split_sigma()
         # log.plot_beam_layers()
-        # log.sss_boxplot()
-        log.plan_creator(fraction='all', mode='all')
+        log.sss_boxplot()
+        # log.plan_creator(fraction='all', mode='all')
 
         continue
         sns.set()
