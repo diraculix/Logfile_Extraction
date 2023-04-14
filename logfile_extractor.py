@@ -30,7 +30,7 @@ from matplotlib import pyplot as plt
 
 output_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\output'  # set output dir, fallback alternative below (if code is used between multiple systems)
 if not os.path.isdir(os.path.join(output_dir, '..')):
-    output_dir = r'/home/luke/Logfile_Extraction/output'
+    output_dir = r'/home/luke/Scripts/Logfile_Extraction/output'
 
 if not os.path.isdir(output_dir): os.mkdir(output_dir)
 
@@ -91,7 +91,7 @@ class MachineLog():
         # self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
         self.df_destination = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\extracted'
         if not os.path.isdir(os.path.join(self.df_destination, '..')):            
-            self.df_destination = r'/home/luke/Logfile_Extraction/dataframes'
+            self.df_destination = r'/home/luke/Scripts/Logfile_Extraction/dataframes'
         
         if not os.path.isdir(self.df_destination):
             os.mkdir(self.df_destination)
@@ -939,7 +939,7 @@ class MachineLog():
         delivered = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\DeliveredPlans'
         plan_dir = os.path.join(delivered, self.patient_id)
         if not os.path.isdir(delivered):
-            plan_dir = r'/home/luke/Logfile_Extraction/1676348/DeliveredPlans'        
+            plan_dir = r'/home/luke/Scripts/Logfile_Extraction/1676348/DeliveredPlans'        
         
         if verbose: print('''... will only accept RayStation plan exports ('RP.*.dcm') ...''')
         for file in os.listdir(plan_dir):
@@ -2745,7 +2745,7 @@ if __name__ == '__main__':
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
-    # root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
+    # root_dir = r'/home/luke/Scripts/Logfile_Extraction/1676348/Logfiles'
     # erroneous = [1230180, 1625909, 1627648, 1660835, 1698000, 1700535]
     # for errid in erroneous:
     #     dir = os.path.join(root_dir, str(errid))
