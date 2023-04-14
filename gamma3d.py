@@ -90,8 +90,8 @@ def full_eval(id):
         root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
         plan_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\DeliveredPlans'
 
-        print(f'>>> START ID {id}')
-        doses = os.path.join(plan_dir, id, 'Doses\Water')
+        # print(f'>>> START ID {id}')
+        doses = os.path.join(plan_dir, id + '\Doses\WaterIso1mmLateral')
         log_dir = os.path.join(root_dir, '..', 'extracted')
         for file in os.listdir(log_dir):
             if file.__contains__(str(id)) and file.__contains__('record') and file.endswith('csv'):
@@ -112,7 +112,7 @@ def full_eval(id):
             beam_df = df.loc[df.BEAM_ID == beam]
             if len(beam_df.FRACTION_ID.drop_duplicates()) < 15:
                 df.drop(beam_df.index, inplace=True)
-
+        
         # prepare output
         beams = df.BEAM_ID.drop_duplicates().to_list()
         fractions = df.FRACTION_ID.drop_duplicates().to_list()
@@ -130,7 +130,7 @@ def full_eval(id):
                 print(f'  > Calculating physical passrates ({i + 1}/{len(fractions)})..', end='\n')   
             for crit in log_crits:
                 fx_df = df.loc[df.FRACTION_ID == fx]
-                total_log_pass = fx_df.loc[fx_df.DISTANCE <= crit].MU.sum() / fx_df.MU.sum()
+                total_log_pass = fx_df.loc[fx_df.DISTANCE <= crit].MU.sum() / fx_df.MU.sum() * 100
                 target_df.loc[i, 'FRACTION_ID'] = fx
                 target_df.loc[i, f'LOGPASS_{crit}_mm'] = total_log_pass
         
@@ -183,7 +183,7 @@ def full_eval(id):
                 target_df.loc[i, 'FRACTION_ID'] = fx
                 if has_eval_plan and has_ref_plan:
                     plan_gamma_pass, _, _, _ = gamma_3d(dpt, dta, ref_plan_dose, eval_plan_dose)
-                    target_df.loc[i, f'GAMMAPASS_{dpt}_{dta}'] = plan_gamma_pass
+                    target_df.loc[i, f'GAMMAPASS_{dpt}_{dta}'] = plan_gamma_pass * 100
                 else:
                     if crit == gamma_crits[0]: print(f'    /!\ Missing evaluation dose for fraction {fx}')
                     target_df.loc[i, f'GAMMAPASS_{dpt}_{dta}'] = np.nan
@@ -191,7 +191,7 @@ def full_eval(id):
                 written = False
                 while not written:
                     try: 
-                        target_df.to_csv(os.path.join(doses, f'{id}_H2O_3Dgamma.csv'))               
+                        target_df.to_csv(os.path.join(doses, f'{id}_H2O_isoshift_1mm_lat_3Dgamma.csv'))               
                         break
                     except PermissionError:
                         input(f'  /!\ Permission denied for target CSV, close file..')
@@ -206,12 +206,18 @@ if __name__ == '__main__':
     # eval_dir = os.path.join(root_dir, 'eval')
     # criteria = [(2, 2), (1, 1), (1, 0.5), (0.5, 1), (0.5, 0.5)]
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
+    all_fx = 0
     for id in ponaqua_qualified:
-        if int(id) in [671075,1230180,1635796,1683480,1676596,280735,1367926]:
-            ponaqua_qualified.remove(id) 
+        pat_fx = full_eval(id)
+        print(id, pat_fx)
+        all_fx += pat_fx
+    
+    print('ALL', all_fx)
+    #     if int(id) in [671075,1230180,1635796,1683480,1676596,280735,1367926]:
+    #         ponaqua_qualified.remove(id) 
             
-    to_do = ["1669130"]        
-    parallelize(to_do)
+    # to_do = ["1669130"]        
+    # parallelize(to_do)
 
     # ref = os.path.join(root_dir, 'RD_R1_HNO.dcm')
     # evals = [os.path.join(eval_dir, dcm) for dcm in os.listdir(eval_dir) if dcm.__contains__('RD') and dcm.endswith('.dcm')]
