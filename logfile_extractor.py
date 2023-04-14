@@ -2345,7 +2345,7 @@ class MachineLog():
         print(f'\nInitializing spot statistics dataframe for patient-ID {self.patient_id}..')
         beams = self.patient_delta_df.BEAM_ID.drop_duplicates()
         spots_data = {beam_id:[] for beam_id in beams}
-        operation_columns = ['DELTA_X(mm)', 'DELTA_Y(mm)', 'DELTA_MU', 'DELTA_E(MeV)']
+        operation_columns = ['DELTA_X(mm)', 'DELTA_Y(mm)', 'DELTA_MU', 'DELTA_E(MeV)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)']
 
         for fx_id in self.fraction_list:
             for beam_id in beams:
@@ -2393,7 +2393,6 @@ class MachineLog():
                         fx_dfs.append(fx_df)
                         continue  
                     
-                    error = False
                     record_reference, record_current = layer_record.loc[layer_record.FRACTION_ID == reference_fx].set_index('SPOT_ID').copy(), layer_record.loc[layer_record.FRACTION_ID == fx_id].set_index('SPOT_ID').copy()
                     diff = abs(record_reference[['X_POSITION(mm)', 'Y_POSITION(mm)']] - record_current[['X_POSITION(mm)', 'Y_POSITION(mm)']])
                     if len(fx_df) == len(layer_reference):
@@ -2402,7 +2401,6 @@ class MachineLog():
                         
                         # verify correct sorting, cases exist where two different spots are missing in each df, but len() is equal
                         while (diff > 3).any(axis=None):
-                            error = True
                             xy_ref, xy_cur = pd.DataFrame(), pd.DataFrame()
                             xy_ref[['X_REF', 'Y_REF']] = record_reference[['X_POSITION(mm)', 'Y_POSITION(mm)']]
                             xy_cur[['X_CUR', 'Y_CUR']] = record_current[['X_POSITION(mm)', 'Y_POSITION(mm)']]
@@ -2579,9 +2577,10 @@ class MachineLog():
         # df['DELTA_DIST_STD'] = np.sqrt((df['DELTA_X(mm)_MEAN'] ** 2) / (df['DELTA_X(mm)_MEAN'] ** 2 + df['DELTA_Y(mm)_MEAN'] ** 2) * df['DELTA_X(mm)_STD'] ** 2 + 
         #                                (df['DELTA_Y(mm)_MEAN'] ** 2) / (df['DELTA_X(mm)_MEAN'] ** 2 + df['DELTA_Y(mm)_MEAN'] ** 2) * df['DELTA_Y(mm)_STD'] ** 2)
 
+        worst, spots = [], 0
         for i, patient in enumerate(ponaqua_qualified):
             pdf = df.loc[df.PATIENT_ID == int(patient)]
-            print(i + 1, patient, len(pdf))
+            print(i + 1, patient, len(pdf), 'spots')
             # x_min, x_max = pdf['DELTA_X(mm)_MEAN'].min(), pdf['DELTA_X(mm)_MEAN'].max()
             # y_min, y_max = pdf['DELTA_Y(mm)_MEAN'].min(), pdf['DELTA_Y(mm)_MEAN'].max()
             # if abs(x_min) > abs(x_max):
@@ -2598,11 +2597,14 @@ class MachineLog():
             # print('\tReprod. x: mean (worst)', np.round(pdf['DELTA_X(mm)_STD'].mean(), 1), f"({np.round(pdf['DELTA_X(mm)_STD'].max(), 1)})")
             # print('\tReprod. y: mean (worst)', np.round(pdf['DELTA_Y(mm)_STD'].mean(), 1), f"({np.round(pdf['DELTA_Y(mm)_STD'].max(), 1)})")
 
-            patient_mean_dist = np.sqrt(pdf['DELTA_X(mm)_MEAN'].mean() ** 2 + pdf['DELTA_Y(mm)_MEAN'].mean() ** 2)
+            patient_mean_dist = pdf['DELTA_DIST_MEAN'].mean()
+            worst.append(np.round(pdf['DELTA_DIST_MEAN'].max(), 1))
+            spots += len(pdf)
             print('\tGenauigkeit: mean (worst)', np.round(patient_mean_dist, 1), f"({np.round(pdf['DELTA_DIST_MEAN'].max(), 1)})")
-            print('\tReproduzier: mean (worst)', np.round(pdf['DELTA_DIST_STD'].mean(), 1), f"({np.round(pdf['DELTA_DIST_STD'].max(), 1)})")
+            # print('\tReproduzier: mean (worst)', np.round(pdf['DELTA_DIST_STD'].mean(), 1), f"({np.round(pdf['DELTA_DIST_STD'].max(), 1)})")
         
         print('ALL:')
+        print(np.mean(worst), spots)
         print('Genauigkeit:', df['DELTA_DIST_MEAN'].mean(), '+-', df['DELTA_DIST_MEAN'].std(), 'mm')
         print('Reproduzier:', df['DELTA_DIST_STD'].mean(), '+-', df['DELTA_DIST_STD'].std(), 'mm')
         
@@ -2739,8 +2741,8 @@ class MachineLog():
         
 
 if __name__ == '__main__':
-    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
-    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
+    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
     # root_dir = r'/home/luke/Logfile_Extraction/1676348/Logfiles'
@@ -2751,14 +2753,12 @@ if __name__ == '__main__':
     #     log.prepare_dataframe()
     #     log.prepare_dataframe()
 
-    log = MachineLog(root_dir)
-    log.prepare_qa_dataframe()
+    # log = MachineLog(root_dir)
+    # log.prepare_qa_dataframe()
 
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
     for id in ponaqua_qualified:
-        continue
-        if id not in ["1669130"]: continue
-        # if int(id) in [1663630, 671075, 1230180, 1635796, 1683480]: continue
+        if int(id) in [1663630, 671075, 1230180, 1635796, 1683480]: continue
         log = MachineLog(os.path.join(root_dir, id))
         # log.prepare_dataframe()
         # log.prepare_deltaframe()
