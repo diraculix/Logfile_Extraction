@@ -1,5 +1,5 @@
 # Logfile_Extraction 
-> _Proton therapy irradiation record file data extraction, conversion, analysis and treatment dose reconstruction._
+> _Proton therapy irradiation log file file data extraction, conversion, analysis and treatment dose reconstruction._
 
 1. [logfile_extractor.py](##logfile_extractor.py)
     1. [init( )](###init())
