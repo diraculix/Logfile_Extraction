@@ -62,8 +62,8 @@ def gamma_3d(dpt, dta, path_to_ref, path_to_eval, cutoff=10, interp=10, max=1.1,
     return passed, max_gamma, mean_gamma, std_gamma
 
 if __name__=='__main__':
-    # Example script use with 3%/3mm and global maximum normalization
+    # Example script use with 3%/3mm and 2 Gy normalization
     ref = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\DeliveredPlans\280735\Doses\RD1.2.752.243.1.1.20230213142505978.3800.17030.dcm' 
     eval = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\DeliveredPlans\280735\Doses\eval\RD1.2.752.243.1.1.20230303121848345.8620.84151.dcm'
-    gammapass, _, _, _ = gamma_3d(3, 3, ref, eval)  # 4 return values, mostly pass rate is of interest
+    gammapass, _, _, _ = gamma_3d(3, 3, ref, eval, norm=2.0)  # 4 return values, mostly pass rate is of interest
     print(gammapass)
