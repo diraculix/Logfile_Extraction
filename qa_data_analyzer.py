@@ -11,7 +11,7 @@ plt.rcParams['axes.grid.axis'] = 'y'
 
 
 try:
-    df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
+    df_destination = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA'
     output_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\output'
     os.chdir(df_destination)
 except:
@@ -19,6 +19,17 @@ except:
     output_dir = r'/home/luke/Logfile_Extraction/output'
     os.chdir(df_destination)
 
+def rotate(qa_df):
+    new_x = qa_df['Y_POSITION(mm)']
+    new_y = - qa_df['X_POSITION(mm)']
+    new_dx = qa_df['DELTA_Y(mm)']
+    new_dy = - qa_df['DELTA_X(mm)']
+    qa_df['X_POSITION(mm)'] = new_x
+    qa_df['Y_POSITION(mm)'] = new_y
+    qa_df['DELTA_X(mm)'] = new_dx
+    qa_df['DELTA_Y(mm)'] = new_dy
+
+    return qa_df
 
 def plot_qa_beams(qa_df):
     beam_ids = qa_df['BEAM_ID'].drop_duplicates().to_list()
@@ -150,45 +161,66 @@ def fit_sin(t, y):
     return fitfunc
 
 
-def correct_gtr(qa_df):
+def angle_plot(qa_df):
+    # qa_df = qa_df.loc[qa_df.FRACTION_ID.astype(int) > 20210000]  # no big difference
     angles = sorted(qa_df.GANTRY_ANGLE.drop_duplicates().to_list())
     x_diff_scatter = zip(qa_df.GANTRY_ANGLE, qa_df['DELTA_X(mm)'])
     y_diff_scatter = zip(qa_df.GANTRY_ANGLE, qa_df['DELTA_Y(mm)'])
-    x_mean_diffs = [qa_df.loc[qa_df.GANTRY_ANGLE == angle]['DELTA_X(mm)'].mean() for angle in angles]
-    y_mean_diffs = [qa_df.loc[qa_df.GANTRY_ANGLE == angle]['DELTA_Y(mm)'].mean() for angle in angles]
+    x_median_diffs = [qa_df.loc[qa_df.GANTRY_ANGLE == angle]['DELTA_X(mm)'].median() for angle in angles]
+    y_median_diffs = [qa_df.loc[qa_df.GANTRY_ANGLE == angle]['DELTA_Y(mm)'].median() for angle in angles]
 
     output_df = pd.DataFrame(columns=['GANTRY_ANGLE', 'DELTA_X[mm]', 'DELTA_Y[mm]'])
     output_df['GANTRY_ANGLE'] = angles
-    output_df['DELTA_X[mm]'] = x_mean_diffs
-    output_df['DELTA_Y[mm]'] = y_mean_diffs
+    output_df['DELTA_X[mm]'] = x_median_diffs
+    output_df['DELTA_Y[mm]'] = y_median_diffs
     output_df.to_csv(f'{output_dir}/QA_angular_dependence.csv')
 
     angles.append(360.)
-    zero_x, zero_y = x_mean_diffs[0], y_mean_diffs[0]
-    x_mean_diffs.append(zero_x), y_mean_diffs.append(zero_y)
+    zero_x, zero_y = x_median_diffs[0], y_median_diffs[0]
+    x_median_diffs.append(zero_x), y_median_diffs.append(zero_y)
 
     fig, axs = plt.subplots(1, 2, figsize=(10, 4), sharex=True, sharey=True)
-    x_axis = np.linspace(0, 360, 1000)
-    sine_fit_x = fit_sin(angles, x_mean_diffs)
-    sine_fit_y = fit_sin(angles, y_mean_diffs)
+    x_axis = np.linspace(0, 315, 1000)
+    sine_fit_x = fit_sin(angles, x_median_diffs)
+    sine_fit_y = fit_sin(angles, y_median_diffs)
 
-    axs[0].scatter(*zip(*x_diff_scatter), alpha=0.2, label='$\Delta x$ to plan', zorder=10)
-    axs[0].scatter(angles, x_mean_diffs, edgecolors='black', c='white', label='mean shift', zorder=30)
-    axs[0].plot(x_axis, sine_fit_x(x_axis), c='black', label='Sine fit', zorder=20)
+    sns.set(style='whitegrid')
+    # axs[0].scatter(*zip(*x_diff_scatter), alpha=0.2, label='$\Delta x$ to plan', zorder=10)
+    # axs[0].scatter(angles, x_mean_diffs, edgecolors='black', c='white', label='mean shift', zorder=30)
+    axs[0].plot(x_axis, sine_fit_x(x_axis), c='black', label='Sine fit')
+    axs[0].annotate('X', xy=(.9, .05), xycoords='axes fraction', fontweight='bold', fontsize=26)
+    sns.violinplot(data=qa_df, x=qa_df.GANTRY_ANGLE, y=qa_df['DELTA_X(mm)'], ax=axs[0], color='tab:blue', lc='black', order=np.arange(360), width=20, scale='width', label='$\Delta x$')
 
-    axs[1].scatter(*zip(*y_diff_scatter), alpha=0.2, label='$\Delta y$ to plan', zorder=10)
-    axs[1].scatter(angles, y_mean_diffs, edgecolors='black', c='white', label='mean shift', zorder=30)
-    axs[1].plot(x_axis, sine_fit_y(x_axis), c='black', label='Sine fit', zorder=20)
+    # axs[1].scatter(*zip(*y_diff_scatter), alpha=0.2, label='$\Delta y$ to plan', zorder=10)
+    # axs[1].scatter(angles, y_mean_diffs, edgecolors='black', c='white', label='mean shift', zorder=30)
+    axs[1].plot(x_axis, sine_fit_y(x_axis), c='black', label='Sine fit')
+    axs[1].annotate('Y', xy=(.9, .05), xycoords='axes fraction', fontweight='bold', fontsize=26)
+    sns.violinplot(data=qa_df, x=qa_df.GANTRY_ANGLE, y=qa_df['DELTA_Y(mm)'], ax=axs[1], color='tab:orange', lc='black', order=np.arange(360), width=20, scale='width', label='$\Delta y$')
+    
+    for ax in axs:
+        ax.set_xlabel('Gantry angle [°]')
+        ax.set_xlim(-20, 335)
+        ax.set_ylabel(None)
+        # tick_every = 45
+        # [tick.set_visible(False) for (i, tick) in enumerate(ax.get_xticklabels()) if i % tick_every != 0]
+        ax.set_xticks([0, 45, 90, 135, 180, 225, 270, 315])
+        ax.set_axisbelow(True)
+        # ax.legend()
     
     axs[0].set_ylabel('Positional error [mm]')
     axs[0].set_ylim(-3, 3)
-    axs[0].set_xlabel('Gantry angle [°]')
-    axs[0].legend()
-    axs[1].set_xlabel('Gantry angle [°]')
-    axs[1].legend()
 
     plt.tight_layout()
     plt.savefig(f'{output_dir}/QA_gantry_sine_fit.png', dpi=300)
+    plt.show()
+
+def central_spot(qa_df):
+    ctrl_df = qa_df.loc[(np.round(qa_df['X_POSITION(mm)'], 0) == 0.) & (np.round(qa_df['Y_POSITION(mm)'], 0) == 0.) & (qa_df.GANTRY_ANGLE.isin([0, 90, 180, 270]))]
+    sns.set(style='whitegrid')
+    for g in [0., 90., 180., 270.]:
+        df = ctrl_df.loc[(ctrl_df.GANTRY_ANGLE == g) & (ctrl_df['LAYER_ENERGY(MeV)'] == 226.7)]
+        plt.scatter(df['X_POSITION(mm)'].median(), df['Y_POSITION(mm)'].median(), label=g)
+    
     plt.show()
 
 def missing_beams(qa_df):
@@ -218,10 +250,12 @@ def missing_beams(qa_df):
                   
 
 if __name__ == '__main__':
-    qa_dataframe = pd.read_csv('QA_2017-2022_records_data.csv', dtype={'BEAM_ID':str, 'FRACTION_ID':int})
+    qa_dataframe = pd.read_csv('QA_2017-2023_records_data_rotated.csv', dtype={'BEAM_ID':str, 'FRACTION_ID':int})
     # qa_dataframe = qa_dataframe.loc[qa_dataframe['FRACTION_ID'] > 20220000]
     # print(qa_dataframe.FRACTION_ID.drop_duplicates())
     print('Read dataframe .. DONE')
-    plot_qa_beams(qa_dataframe)
-    # correct_gtr(qa_dataframe)
+    # plot_qa_beams(qa_dataframe)
+    qa_dataframe = rotate(qa_dataframe)
+    angle_plot(qa_dataframe)
+    # central_spot(qa_dataframe)
     # missing_beams(qa_dataframe)
