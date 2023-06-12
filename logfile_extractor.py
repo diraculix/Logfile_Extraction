@@ -90,6 +90,7 @@ class MachineLog():
         # set dataframe storage directory, fallback alternative below
         # self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
         self.df_destination = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\extracted'
+        # self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
         if not os.path.isdir(os.path.join(self.df_destination, '..')):            
             self.df_destination = r'/home/luke/Scripts/Logfile_Extraction/dataframes'
         
@@ -1813,6 +1814,7 @@ class MachineLog():
 
     
     def beam_timings(self):
+        logfile_root = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
         beam_list = self.patient_record_df['BEAM_ID'].drop_duplicates()
         indices = beam_list.index.to_list()
 
@@ -1854,89 +1856,103 @@ class MachineLog():
         #     ax.set_xticklabels(range(1, len(x_axis) + 1))
 
         print('\nGenerating beam timing plot..')
-        global_drills, global_spot_switches, global_energy_switches, totals = [], [], [], []
+        global_drills, global_spot_switches, global_energy_switches, global_interlocks, totals = [], [], [], [], []
         for x, fx_id in enumerate(x_axis):  # remember type(fx_id) = <str>
             beam_df = self.patient_record_df.loc[(self.patient_record_df['BEAM_ID'] == beam_id) & (self.patient_record_df['FRACTION_ID'] == fx_id)]
             beam_tuning_df = self.patient_tuning_df.loc[(self.patient_tuning_df['BEAM_ID'] == beam_id) & (self.patient_tuning_df['FRACTION_ID'] == fx_id)]
             if beam_df.empty or beam_tuning_df.empty:
                 print('empty')
-                global_drills.append(0.0), global_spot_switches.append(0.0), global_energy_switches.append(0.0)
                 continue
 
             total_drill_time = (beam_df['DRILL_TIME(ms)'].sum() + beam_tuning_df['DRILL_TIME(ms)'].sum()) / 1000
             total_layer_time, total_energy_switch = 0.0, 0.0
-            layer_dfs = [beam_df.loc[beam_df['LAYER_ID'] == lid] for lid in beam_df['LAYER_ID'].drop_duplicates()]
+            layer_dfs = [beam_df.loc[beam_df['LAYER_ID'] == lid] for lid in beam_tuning_df['LAYER_ID'].drop_duplicates()]
             layer_tuning_dfs = [beam_tuning_df.loc[beam_tuning_df['LAYER_ID'] == lid] for lid in beam_tuning_df['LAYER_ID'].drop_duplicates()]
             for layer_id, layer_df in enumerate(layer_dfs):
-                start_this = pd.to_datetime(layer_tuning_dfs[layer_id].first_valid_index())
-                end_this = pd.to_datetime(layer_df.last_valid_index())
-                layer_time = end_this - start_this
+                if layer_df.empty:
+                    layer_df = layer_tuning_dfs[layer_id]  # all layer spots covered during tuning
+
+                start_irr = pd.to_datetime(layer_df.first_valid_index())
+                start_tun = pd.to_datetime(layer_tuning_dfs[layer_id].first_valid_index())
+                end_irr = pd.to_datetime(layer_df.last_valid_index())
+                layer_time = end_irr - start_irr
                 total_layer_time += layer_time.total_seconds()
                 
                 if layer_id > 0:
-                    end_previous = pd.to_datetime(layer_dfs[layer_id - 1].last_valid_index())
-                    energy_switch = start_this - end_previous
+                    if layer_dfs[layer_id - 1].empty:
+                        end_prev = pd.to_datetime(layer_tuning_dfs[layer_id - 1].last_valid_index())
+                    else:
+                        end_prev = pd.to_datetime(layer_dfs[layer_id - 1].last_valid_index())
+
+                    energy_switch = start_tun - end_prev
                     total_energy_switch += energy_switch.total_seconds()
             
             total_spot_switch = total_layer_time - total_drill_time
-            global_drills.append(total_drill_time), global_spot_switches.append(total_spot_switch), global_energy_switches.append(total_energy_switch)
-            totals.append(total_drill_time + total_spot_switch + total_energy_switch)
-       
-        print(f'\n\t\tMedian\tMin\tMax\tSigma')
-        print(f'Drill\t\t{np.median(global_drills):.3f}\t{min(global_drills):.3f}\t{max(global_drills):.3f}\t{np.std(global_drills):.3f}')
-        print(f'Spot switch\t{np.median(global_spot_switches):.3f}\t{min(global_spot_switches):.3f}\t{max(global_spot_switches):.3f}\t{np.std(global_spot_switches):.3f}')
-        print(f'Energy switch\t{np.median(global_energy_switches):.3f}\t{min(global_energy_switches):.3f}\t{max(global_energy_switches):.3f}\t{np.std(global_energy_switches):.3f}')
-        print('_____________________________________________________')
-        print(f'Total beamtime\t{np.median(totals):.3f}\t{min(totals):.3f}\t{max(totals):.3f}\t{np.std(totals):.3f}\n')
-        
-        global_interlocks = []
-        for fx, spot_switch in enumerate(global_spot_switches):
-            interlock_time = 0.0
-            if spot_switch > np.median(global_spot_switches) + 5:
-                this_interlock = spot_switch - np.median(global_spot_switches)
-                interlock_time += this_interlock
-                global_spot_switches[fx] = global_spot_switches[fx] - this_interlock
-                print(f'  /!\ Possible spot switch interlock detected in fraction #{fx + 1}')
-            if global_energy_switches[fx] > np.median(global_energy_switches) + 5:
-                this_interlock = global_energy_switches[fx] - np.median(global_energy_switches)
-                interlock_time += this_interlock
-                global_energy_switches[fx] = global_energy_switches[fx] - this_interlock
-                print(f'  /!\ Possible energy switch interlock detected in fraction #{fx + 1}')
+            
+            fx_dir = os.path.join(logfile_root, self.patient_id, fx_id, beam_id)
+            has_interlock, has_pause, total_interlock = False, False, 0.0
+            for file in os.listdir(fx_dir):
+                if file.__contains__('events') and file.endswith('.csv'):
+                    events = open(os.path.join(fx_dir, file)).readlines()
+                    for i, line in enumerate(events):
+                        if line.__contains__('RESUME_REQUESTED'):
+                            print(f'  /!\ Interlock detected in fraction {x + 1} ({fx_id})')
+                            resume_time = pd.to_datetime(line.split(',')[0])
+                            stop_time = pd.to_datetime(events[i - 1].split(',')[0])
+                            has_interlock = True
+                            if has_pause:
+                                total_interlock += (resume_time - pause_time).total_seconds()
+                            else:
+                                total_interlock += (resume_time - stop_time).total_seconds()
+                            has_pause = False
 
-            global_interlocks.append(interlock_time)
+                        elif line.__contains__('PAUSE_REQUESTED'):
+                            pause_time = pd.to_datetime(events[i - 1].split(',')[0])
+                            has_pause = True
+            
+            if has_interlock:
+                if total_spot_switch > np.median(global_spot_switches) + 2:
+                    print('      (Spot switch)')
+                    total_spot_switch -= total_interlock
+                if total_energy_switch > np.median(global_energy_switches) + 3:
+                    print('      (Energy switch)')
+                    total_energy_switch -= total_interlock
+
+            global_drills.append(total_drill_time), global_spot_switches.append(total_spot_switch), global_energy_switches.append(total_energy_switch), global_interlocks.append(total_interlock)
+            totals.append(total_drill_time + total_spot_switch + total_energy_switch)
         
         global_drills = np.array(global_drills)
         global_spot_switches = np.array(global_spot_switches)
         global_energy_switches = np.array(global_energy_switches)
         global_interlocks = np.array(global_interlocks)
 
+        print(f'\n\t\tMean\tMin\tMax\tSigma')
+        print(f'Drill\t\t{np.mean(global_drills):.3f}\t{min(global_drills):.3f}\t{max(global_drills):.3f}\t{np.std(global_drills):.3f}')
+        print(f'Spot switch\t{np.mean(global_spot_switches):.3f}\t{min(global_spot_switches):.3f}\t{max(global_spot_switches):.3f}\t{np.std(global_spot_switches):.3f}')
+        print(f'Energy switch\t{np.mean(global_energy_switches):.3f}\t{min(global_energy_switches):.3f}\t{max(global_energy_switches):.3f}\t{np.std(global_energy_switches):.3f}')
+        print('_____________________________________________________')
+        print(f'Total beamtime\t{np.mean(totals):.3f}\t{min(totals):.3f}\t{max(totals):.3f}\t{np.std(totals):.3f}\n')
+
         ec = 'none'
-        axs[0].bar(range(len(global_drills)), global_drills, label='Drill', color='yellow', edgecolor=ec)
-        axs[0].bar(range(len(x_axis)), global_spot_switches, bottom=global_drills, label='Spot switch', color='tab:orange', edgecolor=ec)
-        axs[0].bar(range(len(x_axis)), global_energy_switches, bottom=global_spot_switches + global_drills, label='Energy switch', color='tab:red', edgecolor=ec)
-        axs[0].bar(range(len(x_axis)), global_interlocks, bottom=global_spot_switches + global_drills + global_energy_switches, label='Interlock', color='tab:purple', edgecolor=ec)
-        axs[3].plot(range(len(x_axis)), global_drills, marker='o', color='black', markerfacecolor='yellow', label='Drill')
-        axs[3].axhline(np.median(global_drills), ls='--', color='black', lw=1.0, zorder=-1, label='$\widetilde{x} \pm \sigma =$' + f' ({np.median(global_drills):.2f} $\pm$ {np.std(global_drills):.2f}) s')
-        axs[2].plot(range(len(x_axis)), global_spot_switches, marker='o', color='black', markerfacecolor='tab:orange', label='Spot switch')  
-        axs[2].axhline(np.median(global_spot_switches), ls='--', color='black', lw=1.0, zorder=-1, label='$\widetilde{x} \pm \sigma =$' + f' ({np.median(global_spot_switches):.2f} $\pm$ {np.std(global_spot_switches):.2f}) s')
-        axs[1].plot(range(len(x_axis)), global_energy_switches, marker='o', color='black', markerfacecolor='tab:red', label='Energy switch')  
-        axs[1].axhline(np.median(global_energy_switches), ls='--', color='black', lw=1.0, zorder=-1, label='$\widetilde{x} \pm \sigma =$' + f' ({np.median(global_energy_switches):.2f} $\pm$ {np.std(global_energy_switches):.2f}) s')
+        sns.set(style='whitegrid')
+        axs[0].bar(range(1, len(global_drills) + 1), global_drills, label='Drill', color='yellow', edgecolor=ec)
+        axs[0].bar(range(1, len(global_spot_switches) + 1), global_spot_switches, bottom=global_drills, label='Spot switch', color='tab:orange', edgecolor=ec)
+        axs[0].bar(range(1, len(global_energy_switches) + 1), global_energy_switches, bottom=global_spot_switches + global_drills, label='Energy switch', color='tab:red', edgecolor=ec)
+        axs[0].bar(range(1, len(global_interlocks) + 1), global_interlocks, bottom=global_spot_switches + global_drills + global_energy_switches, label='Pause (interlock)', color='tab:purple', edgecolor=ec)
+        axs[3].plot(range(1, len(global_drills) + 1), global_drills, marker='o', color='black', markerfacecolor='yellow', label='Drill')
+        axs[3].axhline(np.mean(global_drills), ls='--', color='black', lw=1.0, zorder=-1, label='$\\bar{x} \pm \sigma =$' + f' ({np.mean(global_drills):.2f} $\pm$ {np.std(global_drills):.2f}) s')
+        axs[3].set_xticks([1, 5, 10, 15, 20, 25, 30, 35, 40])
+        axs[2].plot(range(1, len(global_spot_switches) + 1), global_spot_switches, marker='o', color='black', markerfacecolor='tab:orange', label='Spot switch')  
+        axs[2].axhline(np.mean(global_spot_switches), ls='--', color='black', lw=1.0, zorder=-1, label='$\\bar{x} \pm \sigma =$' + f' ({np.mean(global_spot_switches):.2f} $\pm$ {np.std(global_spot_switches):.2f}) s')
+        axs[1].plot(range(1, len(global_energy_switches) + 1), global_energy_switches, marker='o', color='black', markerfacecolor='tab:red', label='Energy switch')  
+        axs[1].axhline(np.mean(global_energy_switches), ls='--', color='black', lw=1.0, zorder=-1, label='$\\bar{x} \pm \sigma =$' + f' ({np.mean(global_energy_switches):.2f} $\pm$ {np.std(global_energy_switches):.2f}) s')
 
         for ax in axs:
-            # ax.set_ylabel(f'Beam {beam_id}')
-            # ax.set_yscale('log')
             ax.legend(loc='upper left')
-
-        # print(f'\n\t\tMedian\tMin\tMax\tSigma')
-        # print(f'Drill\t\t{np.median(global_drills):.3f}\t{np.min(global_drills):.3f}\t{np.max(global_drills):.3f}\t{np.std(global_drills):.3f}')
-        # print(f'Spot switch\t{np.median(global_spot_switches):.3f}\t{np.min(global_spot_switches):.3f}\t{np.max(global_spot_switches):.3f}\t{np.std(global_spot_switches):.3f}')
-        # print(f'Energy switch\t{np.median(global_energy_switches):.3f}\t{np.min(global_energy_switches):.3f}\t{np.max(global_energy_switches):.3f}\t{np.std(global_energy_switches):.3f}')
-        # print('_____________________________________________________')
-        # totals = global_drills + global_energy_switches + global_interlocks + global_spot_switches
-        # print(f'Total beamtime\t{np.median(totals):.3f}\t{np.min(totals):.3f}\t{np.max(totals):.3f}\t{np.std(totals):.3f}\n')
-        
+            ax.set_axisbelow(True)
+            ax.grid(axis='y')        
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/{self.patient_id}_beam_timings_KS.png', dpi=300)        
+        plt.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_beamtime.png', dpi=300)        
         plt.show()
 
 
@@ -2343,9 +2359,10 @@ class MachineLog():
         
         # get spot counts per beam and fraction
         print(f'\nInitializing spot statistics dataframe for patient-ID {self.patient_id}..')
+        self.patient_delta_df['DIST(mm)'] = np.sqrt(self.patient_delta_df['DELTA_X(mm)'] ** 2 + self.patient_delta_df['DELTA_Y(mm)'] ** 2)
         beams = self.patient_delta_df.BEAM_ID.drop_duplicates()
         spots_data = {beam_id:[] for beam_id in beams}
-        operation_columns = ['DELTA_X(mm)', 'DELTA_Y(mm)', 'DELTA_MU', 'DELTA_E(MeV)', 'X_WIDTH(mm)', 'Y_WIDTH(mm)']
+        operation_columns = ['DELTA_X(mm)', 'DELTA_Y(mm)', 'DELTA_MU', 'DELTA_E(MeV)']
 
         for fx_id in self.fraction_list:
             for beam_id in beams:
@@ -2355,12 +2372,16 @@ class MachineLog():
                 else:
                     spots_data[beam_id].append(len(beam_df))
         
+        operation_columns += ['X_WIDTH(mm)', 'Y_WIDTH(mm)', 'DIST(mm)']
         to_concat = []
         for beam_id in spots_data.keys():
             beam_df = self.patient_delta_df.loc[self.patient_delta_df['BEAM_ID'] == beam_id].reset_index()
             beam_rec = self.patient_record_df.loc[self.patient_record_df['BEAM_ID'] == beam_id].reset_index()
             if len(beam_df) == len(beam_rec):
-                beam_df = pd.concat([beam_df, beam_rec[['X_POSITION(mm)', 'Y_POSITION(mm)', 'MU', 'BEAM_CURRENT(V)', 'DRILL_TIME(ms)', 'LAYER_ENERGY(MeV)']]], axis=1)
+                try:
+                    beam_df = pd.concat([beam_df, beam_rec[['X_WIDTH(mm)', 'Y_WIDTH(mm)', 'X_POSITION(mm)', 'Y_POSITION(mm)', 'MU', 'BEAM_CURRENT(V)', 'DRILL_TIME(ms)', 'LAYER_ENERGY(MeV)']]], axis=1)
+                except KeyError:
+                    beam_df = pd.concat([beam_df, beam_rec[['X_WIDTH(mm)', 'Y_WIDTH(mm)', 'X_POSITION(mm)', 'Y_POSITION(mm)', 'MU', 'BEAM_CURRENT(A)', 'DRILL_TIME(ms)', 'LAYER_ENERGY(MeV)']]], axis=1)
             else:
                 print('\n  /!\ Record DF doesnt match Delta DF! \n')
                 return None
@@ -2486,7 +2507,7 @@ class MachineLog():
         print('Complete')
                 
 
-    def sss_histograms(self):
+    def sss_histograms(self, mode='pos'):
         # locate existing dataframe
         single_stats_exists = False
         for file in sorted(os.listdir(self.df_destination)):
@@ -2504,43 +2525,113 @@ class MachineLog():
         # histograms (one patient)
         sns.set()
         cmap = sns.color_palette()
-        fig, axs = plt.subplots(len(beams), 3, figsize=(20, 10 * len(beams) / 3), sharex='col', sharey='row')
+        
+        if mode == 'pos':
+            fig, axs = plt.subplots(len(beams), 3, figsize=(20, 10 * len(beams) / 3), sharex='col', sharey='row')
+            fig.suptitle(f'Patient {self.patient_id} Delivery Report', fontweight='bold')
+            axs[0, 0].set_title('X-position', fontstyle='italic')
+            axs[0, 1].set_title('Y-position', fontstyle='italic')
+            axs[0, 2].set_title('Dose', fontstyle='italic')
+            target_cols = [['DELTA_X(mm)_MEAN', 'DELTA_X(mm)_STD'], ['DELTA_Y(mm)_MEAN', 'DELTA_Y(mm)_STD'], ['DELTA_MU_MEAN', 'DELTA_MU_STD']]
+            ax_labels = ['$\Delta X$ [mm]', '$\Delta Y$ [mm]', '$\Delta D$ [MU]']
+            ax_units = ['mm', 'mm', 'MU']
+            label_text = ['Accuracy ($\mu$):', 'Precision ($\sigma$):']
+            for nr, bid in enumerate(beams):
+                df = self.patient_sss_df.loc[self.patient_sss_df.BEAM_ID == bid]
+                for i, (ax, cols) in enumerate(zip(axs[nr], target_cols)):
+                    if i != 2:  # positions
+                        sns.histplot(df[cols], kde=True, ax=ax, binwidth=0.02)
+                        ax.set_xlim(-1.5, 1.5)
+                    else:  # dose
+                        sns.histplot(df[cols], kde=True, ax=ax)
+                        ax.set_xlim(-0.02, 0.02)
+                    for j, col in enumerate(cols):
+                        mean, std = df[col].mean(), df[col].std()
+                        ax.axvline(mean, ls='--', lw=1, color=cmap[j], label=f'{label_text[j]} {np.round(mean, 3)} $\pm$ {np.round(std, 3)} {ax_units[i]}')
+                    
+                    ax.set_ylabel('')
+                    ax.set_xlabel(ax_labels[i])
+                    ax.legend(title='Single spot statistics', loc='upper left')
+                    ax.text(0.98, .92, f'{df.GANTRY_ANGLE.iloc[0]}°', horizontalalignment='right', verticalalignment='center', transform = ax.transAxes, fontweight='bold', fontsize=14)
 
-        fig.suptitle(f'Patient {log.patient_id} Delivery Report', fontweight='bold')
-        axs[0, 0].set_title('X-position', fontstyle='italic')
-        axs[0, 1].set_title('Y-position', fontstyle='italic')
-        axs[0, 2].set_title('Dose', fontstyle='italic')
-        target_cols = [['DELTA_X(mm)_MEAN', 'DELTA_X(mm)_STD'], ['DELTA_Y(mm)_MEAN', 'DELTA_Y(mm)_STD'], ['DELTA_MU_MEAN', 'DELTA_MU_STD']]
-        ax_labels = ['$\Delta X$ [mm]', '$\Delta Y$ [mm]', '$\Delta D$ [MU]']
-        ax_units = ['mm', 'mm', 'MU']
-        label_text = ['Accuracy ($\mu$):', 'Precision ($\sigma$):']
-        for nr, bid in enumerate(beams):
-            df = log.patient_sss_df.loc[log.patient_sss_df.BEAM_ID == bid]
-            for i, (ax, cols) in enumerate(zip(axs[nr], target_cols)):
-                if i != 2:  # positions
-                    sns.histplot(df[cols], kde=True, ax=ax, binwidth=0.02)
-                    ax.set_xlim(-1.5, 1.5)
-                else:  # dose
-                    sns.histplot(df[cols], kde=True, ax=ax)
-                    ax.set_xlim(-0.02, 0.02)
-                for j, col in enumerate(cols):
-                    mean, std = df[col].mean(), df[col].std()
-                    ax.axvline(mean, ls='--', lw=1, color=cmap[j], label=f'{label_text[j]} {np.round(mean, 3)} $\pm$ {np.round(std, 3)} {ax_units[i]}')
-                
-                ax.set_ylabel('')
-                ax.set_xlabel(ax_labels[i])
-                ax.legend(title='Single spot statistics', loc='upper left')
-                ax.text(0.98, .92, f'{df.GANTRY_ANGLE.iloc[0]}°', horizontalalignment='right', verticalalignment='center', transform = ax.transAxes, fontweight='bold', fontsize=14)
+            out = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports'
+            plt.tight_layout()
+            plt.savefig(os.path.join(out, f'{id}_sss_hist.png'), dpi=300)
+            plt.show()
+        
+        elif mode == 'width':
+            import matplotlib.colors as mcolors
+            from matplotlib.patches import Patch
+            from matplotlib.lines import Line2D
+            from scipy import interpolate
+    
+            beam_model = pd.read_csv(r'N:\fs4-HPRT\HPRT-Docs\Lukas\BA_Anna_Leimbach\Beam_Modell\beam_sigma_RS.csv')
+            bm_energies = beam_model.iloc[:, 0]
+            bm_fwhm = beam_model.iloc[:, 1] * 10 * 2.355
+            bm_interp = interpolate.interp1d(bm_energies, bm_fwhm, kind='cubic')
+            cmaps, colors = [plt.get_cmap('Reds_r'), plt.get_cmap('Blues_r')], []
+            values = np.linspace(0, 1, 10)
+            for cmap in cmaps:
+                colors.append([mcolors.to_hex(cmap(value)) for value in values])
 
-        out = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports'
-        plt.tight_layout()
-        plt.savefig(os.path.join(out, f'{id}_sss_hist.png'), dpi=300)
-        plt.show()
+            markers = ['s', 'o', 'v', '^']
+            legend_elements = [Patch(facecolor=colors[0][1], edgecolor='None', label='$x$-FWHM'), 
+                               Patch(facecolor=colors[1][3], edgecolor='None', label='$y$-FWHM')]
+            
+            fig1, axs1 = plt.subplots(1, 1, figsize=(6, 6))
+            fig2, axs2 = plt.subplots(1, 1, figsize=(6, 6))
+            for nr, bid in enumerate(beams):
+                df = self.patient_record_df.loc[self.patient_record_df.BEAM_ID == bid]
+                energies = sorted(df['LAYER_ENERGY(MeV)'].drop_duplicates().to_list())
+                gantry = df.GANTRY_ANGLE.iloc[0]
+                x_fwhm_mean, x_fwhm_std = [], []
+                y_fwhm_mean, y_fwhm_std = [], []
+                delta_x_rel, delta_y_rel = [], []
+                for energy in energies:
+                    e_df = df.loc[df['LAYER_ENERGY(MeV)'] == energy]
+                    x_fwhm_mean.append(e_df['X_WIDTH(mm)'].mean()), x_fwhm_std.append(e_df['X_WIDTH(mm)'].std())
+                    y_fwhm_mean.append(e_df['Y_WIDTH(mm)'].mean()), y_fwhm_std.append(e_df['Y_WIDTH(mm)'].std())
+                    delta_x_rel.append((e_df['X_WIDTH(mm)'].mean() - bm_interp(energy)) / bm_interp(energy) * 100)
+                    delta_y_rel.append((e_df['Y_WIDTH(mm)'].mean() - bm_interp(energy)) / bm_interp(energy) * 100)
+
+                # axs1.errorbar(x=energies, y=y_fwhm_mean, marker=markers[nr], yerr=y_fwhm_std, color=colors[0][nr + 1])  # x <-> y
+                # axs1.errorbar(x=energies, y=x_fwhm_mean, marker=markers[nr], yerr=x_fwhm_std, color=colors[1][nr + 3])
+                axs1.plot(energies, delta_x_rel, color='tab:orange', label='X')  # relative diff to bm
+                axs1.plot(energies, delta_y_rel, color='tab:blue', label='Y')
+
+                legend_elements.append(Line2D([0], [0], color='black', marker=markers[nr], linestyle='None', label=f'Beam {nr + 1}: {gantry}°'))
+
+            legend_elements.append(Line2D([0], [0], color='black', linestyle='--', label='Beam-Modell'))
+            axs1.plot(bm_energies, bm_fwhm, '--', color='black', zorder=-10)
+            # axs1.set_ylabel('FWHM [mm]')
+            axs1.set_xlabel('Energie [MeV]')
+            axs1.set_ylabel('Rel. Diff. zum BM [%]')
+            axs2.set_ylabel('Anzahl')
+            axs2.set_xlabel('$\sigma_{FWHM}$ [mm]')
+            # axs[1].set_xlim(0, 0.25)
+            # axs1.legend(handles=legend_elements, title='Energie-/Winkelabhängigkeit')
+            # plt.show()
+
+            # fig.suptitle(f'Patient {log.patient_id} Delivery Report', fontweight='bold')
+            target_cols = ['Y_WIDTH(mm)_STD', 'X_WIDTH(mm)_STD']  # x <-> y
+            labels = ['$x$-FWHM', '$y$-FWHM']
+            for i, cols in enumerate(target_cols):
+                sns.histplot(self.patient_sss_df[cols], color=colors[i][1], kde=True, ax=axs2, label=labels[i], binwidth=0.0025, element='step')
+
+            out = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports'
+            # plt.tight_layout()
+            axs2.legend(title='Einzelspot-Reprod.')
+            axs2.set_xlim(0, 0.3)
+            fig1.tight_layout(), fig2.tight_layout()
+            fig1.savefig(os.path.join(out, f'{id}_fwhm_vs_energy.png'), dpi=300)
+            fig2.savefig(os.path.join(out, f'{id}_histograms.png'), dpi=300)
+            # plt.show()
 
 
     def sss_boxplot(self):
-        from matplotlib.patches import Patch, FancyBboxPatch, BoxStyle
+        from matplotlib.patches import Patch
         from matplotlib.lines import Line2D
+        from scipy import interpolate
         out = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports'
         ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
 
@@ -2566,74 +2657,24 @@ class MachineLog():
             df.loc[df.GANTRY_ANGLE == gtr, 'MEDIAN_MU_STD'] = gtr_df['DELTA_MU_STD'].median()
         # df.reset_index(inplace=True)
 
-        # print('Max standard error:', 'x:', df['DELTA_X(mm)_MEAN'].max(), 'mm, y:', df['DELTA_Y(mm)_MEAN'].max(), 'mm, MU:', df['DELTA_MU_MEAN'].max(),  df.loc[df['DELTA_MU_MEAN'].idxmax(), 'DELTA_MU_REL_MEAN']*100, '%')
-        # print('Max variance:', 'x:', df['DELTA_X(mm)_STD'].max(), 'mm, y:', df['DELTA_Y(mm)_STD'].max(), 'mm, MU:', df['DELTA_MU_STD'].max(), df.loc[df['DELTA_MU_STD'].idxmax(), 'DELTA_MU_REL_STD']*100, '%')
-        # print('ACCURACY: Median x-pos:', df['DELTA_X(mm)_MEAN'].median(), f'''(range {df['DELTA_X(mm)_MEAN'].min()} ... {df['DELTA_X(mm)_MEAN'].max()})''', 'Median y-pos:', df['DELTA_Y(mm)_MEAN'].median(), f'''(range {df['DELTA_Y(mm)_MEAN'].min()} ... {df['DELTA_Y(mm)_MEAN'].max()})''', 'Median MU:', df['DELTA_MU_MEAN'].median(), f'''(range {df['DELTA_MU_MEAN'].min()} ... {df['DELTA_MU_MEAN'].max()})''')
-        # print('PRECSISION: Median x-pos:', df['DELTA_X(mm)_STD'].median(), f'''(range {df['DELTA_X(mm)_STD'].min()} ... {df['DELTA_X(mm)_STD'].max()})''', 'Median y-pos:', df['DELTA_Y(mm)_STD'].median(), f'''(range {df['DELTA_Y(mm)_STD'].min()} ... {df['DELTA_Y(mm)_STD'].max()})''', 'Median MU:', df['DELTA_MU_STD'].median(), f'''(range {df['DELTA_MU_STD'].min()} ... {df['DELTA_MU_STD'].max()})''')
-        # print('ACCURACY: mean x-pos:', df['DELTA_X(mm)_MEAN'].mean(), '+-', df['DELTA_X(mm)_MEAN'].std(),  'mean y-pos:', df['DELTA_Y(mm)_MEAN'].mean(), '+-', df['DELTA_Y(mm)_MEAN'].std(), 'mean MU:', df['DELTA_MU_MEAN'].mean(), '+-', df['DELTA_MU_MEAN'].std(),)
-        # print('PRECISION: mean x-pos:', df['DELTA_X(mm)_STD'].mean(), '+-', df['DELTA_X(mm)_STD'].std(), 'mean y-pos:', df['DELTA_Y(mm)_STD'].mean(), '+-', df['DELTA_Y(mm)_STD'].std(), 'mean MU:', df['DELTA_MU_STD'].mean(), '+-', df['DELTA_MU_STD'].std())
-        df['DELTA_DIST_MEAN'] = np.sqrt(df['DELTA_X(mm)_MEAN'] ** 2 + df['DELTA_Y(mm)_MEAN'] ** 2)
-        df['DELTA_DIST_STD'] = np.sqrt(df['DELTA_X(mm)_STD'] ** 2 + df['DELTA_Y(mm)_STD'] ** 2)
-        # df['DELTA_DIST_STD'] = np.sqrt((df['DELTA_X(mm)_MEAN'] ** 2) / (df['DELTA_X(mm)_MEAN'] ** 2 + df['DELTA_Y(mm)_MEAN'] ** 2) * df['DELTA_X(mm)_STD'] ** 2 + 
-        #                                (df['DELTA_Y(mm)_MEAN'] ** 2) / (df['DELTA_X(mm)_MEAN'] ** 2 + df['DELTA_Y(mm)_MEAN'] ** 2) * df['DELTA_Y(mm)_STD'] ** 2)
-
         worst, spots = [], 0
         for i, patient in enumerate(ponaqua_qualified):
             pdf = df.loc[df.PATIENT_ID == int(patient)]
             print(i + 1, patient, len(pdf), 'spots')
-            # x_min, x_max = pdf['DELTA_X(mm)_MEAN'].min(), pdf['DELTA_X(mm)_MEAN'].max()
-            # y_min, y_max = pdf['DELTA_Y(mm)_MEAN'].min(), pdf['DELTA_Y(mm)_MEAN'].max()
-            # if abs(x_min) > abs(x_max):
-            #     worst_x = x_min
-            # else:
-            #     worst_x = x_max
-            
-            # if abs(y_min) > abs(y_max):
-            #     worst_y = y_min
-            # else:
-            #     worst_y = y_max
-            # print('\tGenauigk. x: mean (worst)', np.round(pdf['DELTA_X(mm)_MEAN'].mean(), 1), f'({np.round(worst_x, 1)})')
-            # print('\tGenauigk. y: mean (worst)', np.round(pdf['DELTA_Y(mm)_MEAN'].mean(), 1), f'({np.round(worst_y, 1)})')
-            # print('\tReprod. x: mean (worst)', np.round(pdf['DELTA_X(mm)_STD'].mean(), 1), f"({np.round(pdf['DELTA_X(mm)_STD'].max(), 1)})")
-            # print('\tReprod. y: mean (worst)', np.round(pdf['DELTA_Y(mm)_STD'].mean(), 1), f"({np.round(pdf['DELTA_Y(mm)_STD'].max(), 1)})")
-
-            patient_mean_dist = pdf['DELTA_DIST_MEAN'].mean()
-            worst.append(np.round(pdf['DELTA_DIST_MEAN'].max(), 1))
+            patient_mean_dist = pdf['DIST(mm)_MEAN'].mean()
+            worst.append(np.round(pdf['DIST(mm)_MEAN'].max(), 1))
             spots += len(pdf)
-            print('\tGenauigkeit: mean (worst)', np.round(patient_mean_dist, 1), f"({np.round(pdf['DELTA_DIST_MEAN'].max(), 1)})")
-            # print('\tReproduzier: mean (worst)', np.round(pdf['DELTA_DIST_STD'].mean(), 1), f"({np.round(pdf['DELTA_DIST_STD'].max(), 1)})")
+            print('\tGenauigkeit: mean (worst)', np.round(patient_mean_dist, 1), f"({np.round(pdf['DIST(mm)_MEAN'].max(), 1)})")
+            print('\tReproduzier: mean (worst)', np.round(pdf['DIST(mm)_STD'].mean(), 1), f"({np.round(pdf['DIST(mm)_STD'].max(), 1)})")
         
         print('ALL:')
-        print(np.mean(worst), spots)
-        print('Genauigkeit:', df['DELTA_DIST_MEAN'].mean(), '+-', df['DELTA_DIST_MEAN'].std(), 'mm')
-        print('Reproduzier:', df['DELTA_DIST_STD'].mean(), '+-', df['DELTA_DIST_STD'].std(), 'mm')
-        
-        return None
-
-        # correlate
-        # method = 'spearman'
-        # df = df.loc[df['BEAM_CURRENT(V)'] > 0]
-        # df = df.sort_values(by='MU', ascending=True)
-        # df['DIST_TO_ISO'] = np.sqrt(df['X_POSITION(mm)']**2 + df['Y_POSITION(mm)']**2)
-        # df['MU/I'] = df['MU'] / df['BEAM_CURRENT(V)']
-
-        # # fig, ax = plt.subplots(1, 1, figsize=(20, 15))
-        # # corr = df.drop(columns=['Unnamed: 0', 'UNIQUE_INDEX', 'BEAM_ID', 'FRACTION_ID', 'SPOT_ID', 'LAYER_ID', 'TOTAL_LAYERS', 'DELTA_E(MeV)_MEAN', 'DELTA_E(MeV)_STD', 'PATIENT_ID']).corr(method=method)
-        # # sns.heatmap(corr, annot=True, cmap='icefire', vmin=-1.0, vmax=1.0)
-        # # plt.tight_layout()
-        # # plt.savefig(os.path.join(out, f'{method}.png'), dpi=300)
-
-        # fig2, ax2 = plt.subplots(1, 1, figsize=(15, 10))
-        # sns.lmplot(data=df, x='DRILL_TIME(ms)', y='MU/I', scatter_kws={'alpha':0.3})
-        # plt.xlabel('Drill time $t$ [ms]')
-        # plt.ylabel('Dose per beam current $\propto t$')
-        # plt.savefig(os.path.join(out, 'time_vs_mu-i.png'), dpi=300)
-        # return None
+        print('Genauigkeit:', df['DIST(mm)_MEAN'].mean(), '+-', df['DIST(mm)_MEAN'].std(), 'mm')
+        print('Reproduzier:', df['DIST(mm)_STD'].mean(), '+-', df['DIST(mm)_STD'].std(), 'mm')
         
         fig, axs = plt.subplots(3, 1, figsize=(10, 10))
-        target_cols = [['DELTA_X(mm)_MEAN', 'DELTA_X(mm)_STD', 'MEDIAN_X_STD'], ['DELTA_Y(mm)_MEAN', 'DELTA_Y(mm)_STD', 'MEDIAN_Y_STD'], ['DELTA_MU_MEAN', 'DELTA_MU_STD', 'MEDIAN_MU_STD']]
-        legend = [Patch(facecolor='tab:blue', edgecolor='tab:blue', label='Single spot variance'), 
-                  Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR$_{25,75}$ & Median')]
+        target_cols = [['DIST(mm)_MEAN', 'DIST(mm)_STD'], ['DELTA_X(mm)_MEAN', 'DELTA_X(mm)_STD', 'MEDIAN_X_STD'], ['DELTA_Y(mm)_MEAN', 'DELTA_Y(mm)_STD', 'MEDIAN_Y_STD']] #, ['DELTA_MU_MEAN', 'DELTA_MU_STD', 'MEDIAN_MU_STD']]
+        legend = [Patch(facecolor='tab:blue', edgecolor='tab:blue', label='Single spot precision'), 
+                  Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & Median')]
         for i, (ax, cols) in enumerate(zip(axs, target_cols)):
             # bp1 = sns.boxplot(data=df, x=df.GANTRY_ANGLE, y=df[cols[0]], showfliers=False, ax=ax, color='tab:blue', order=np.arange(360), width=5, linewidth=1)
             # bp2 = sns.boxplot(data=df, x=df.GANTRY_ANGLE, y=df[cols[1]], showfliers=False, ax=ax, color='tab:orange', order=np.arange(360), width=5, linewidth=1)
@@ -2648,25 +2689,65 @@ class MachineLog():
             if i == 2:
                 ax.set_xlabel('Gantry angle [°]')
             else:
-                ax.set_xlabel('')
+                ax.set_xlabel('Gantry angle [°]')
             
             ax.set_xlim(-10, )
             tick_every = 45
             [tick.set_visible(False) for (i, tick) in enumerate(ax.get_xticklabels()) if i % tick_every != 0]
         
-        axs[0].legend(handles=legend, loc='upper center')
-        axs[0].set_title('Treatment fields grouped by gantry position')
-        axs[0].set_ylim(0, 1)
-        axs[0].set_ylabel('$\sigma_x$ [mm]')
+        axs[0].legend(handles=legend, loc='upper right')
+        # axs[0].set_title('Treatment fields grouped by gantry position')
+        axs[0].set_ylim(0, 0.7)
+        axs[0].set_ylabel('$\sigma_r$ [mm]')
         axs[1].set_ylim(0, 1)
         axs[1].set_ylabel('$\sigma_y$ [mm]')
         axs[2].set_ylim(0, 0.01)
         axs[2].set_ylabel('$\sigma_D$ [MU]')
-        fig.suptitle(f'             Log-file Reproducibility', fontweight='bold')
-        plt.tight_layout()
-        plt.savefig(os.path.join(out, 'boxplots_angular.png'), dpi=300)
+        # fig.suptitle(f'             Log-file Reproducibility', fontweight='bold')
+        # plt.tight_layout()
+        # plt.savefig(os.path.join(out, 'boxplots_angular.png'), dpi=300)
         # plt.show()
-    
+
+        record_files = [file for file in os.listdir(self.df_destination) if file.__contains__('_records_') and file.endswith('.csv')]
+        patient_records = []
+        for rec in record_files:
+            print(f'  Reading {rec}..')
+            id = int(rec.split('_')[1])
+            rec_df = pd.read_csv(os.path.join(self.df_destination, rec))
+            rec_df['PATIENT_ID'] = id
+            patient_records.append(rec_df)
+
+        df = pd.concat(patient_records)
+        df.sort_values(by='GANTRY_ANGLE', inplace=True)
+        beam_model = pd.read_csv(r'N:\fs4-HPRT\HPRT-Docs\Lukas\BA_Anna_Leimbach\Beam_Modell\beam_sigma_RS.csv')
+        bm_energies = beam_model.iloc[:, 0]
+        bm_fwhm = beam_model.iloc[:, 1] * 10 * 2.355
+        bm_interp = interpolate.interp1d(bm_energies, bm_fwhm, kind='cubic')
+        df['DELTA_FWHM_X'] = df['X_WIDTH(mm)'] - bm_interp(np.round(df['LAYER_ENERGY(MeV)'], 1))
+        df['DELTA_FWHM_Y'] = df['Y_WIDTH(mm)'] - bm_interp(np.round(df['LAYER_ENERGY(MeV)'], 1))
+        gtr_angles = df.GANTRY_ANGLE.drop_duplicates().to_list()
+        delta_x_per_gtr, delta_y_per_gtr = [], []
+        xerr, yerr = [], []
+        for gtr in gtr_angles:
+            gtr_df = df.loc[df.GANTRY_ANGLE == gtr]
+            delta_x_per_gtr.append(gtr_df['DELTA_FWHM_X'].mean())
+            delta_y_per_gtr.append(gtr_df['DELTA_FWHM_Y'].mean())
+            xerr.append(gtr_df['DELTA_FWHM_X'].std())
+            yerr.append(gtr_df['DELTA_FWHM_Y'].std())
+        
+        fig, ax = plt.subplots(figsize=(10, 5))
+
+        ax.errorbar(gtr_angles, delta_y_per_gtr, yerr=yerr, marker='o', color='tab:orange', capsize=2, label='$x$-FWHM Mittelwert', zorder=2) # x -> y
+        ax.errorbar(gtr_angles, delta_x_per_gtr, yerr=xerr, marker='o', color='tab:blue', capsize=2, label='$y$-FWHM Mittelwert', zorder=3) # y -> x
+        ax.axhline(0, linestyle='--', label='Beam-Modell', color='black', zorder=1)
+        ax.set_xlabel('Gantrywinkel [°]')
+        ax.set_ylabel('$\Delta$FWHM [mm]')
+        ax.set_xticks([0, 45, 90, 135, 180, 225, 270, 315])
+        ax.set_ylim(-2.5, 2.5)
+        plt.legend()
+        plt.savefig(os.path.join(out, f'delta_fwhm.png'), dpi=300)
+        plt.show()
+
     def split_sigma(self):
         out = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports'
 
@@ -2742,6 +2823,7 @@ class MachineLog():
 
 if __name__ == '__main__':
     root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\QA_2017-2023_records_data_rotated.csv'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
@@ -2755,40 +2837,20 @@ if __name__ == '__main__':
 
     # log = MachineLog(root_dir)
     # log.prepare_qa_dataframe()
+    # log.beam_timings()
 
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
     for id in ponaqua_qualified:
-        if int(id) in [1663630, 671075, 1230180, 1635796, 1683480]: continue
-        log = MachineLog(os.path.join(root_dir, id))
+        if int(id) != 1230180: continue
+        # log = MachineLog(os.path.join(root_dir, id))
+        # log.beam_timings()
         # log.prepare_dataframe()
         # log.prepare_deltaframe()
         # log.prepare_sss_dataframe()
-        # log.sss_histograms()
+        # log.sss_histograms(mode='width')
         # log.split_sigma()
         # log.plot_beam_layers()
-        log.sss_boxplot()
-        # log.plan_creator(fraction='all', mode='all')
-
-        continue
-        sns.set()
-        log.patient_sss_df.reset_index(drop=True, inplace=True)
-        log.patient_sss_df.dropna(inplace=True)
-        
-        
-        weight = pd.Series(log.patient_sss_df['MU'] / log.patient_sss_df.loc[log.patient_sss_df['BEAM_CURRENT(V)'] > 0, 'BEAM_CURRENT(V)']).to_list()
-        log.patient_sss_df['DOSE/CURR'] = weight
-        log.patient_sss_df['DISTTOISO(mm)'] = np.sqrt(log.patient_sss_df['X_POSITION(mm)']**2 + log.patient_sss_df['Y_POSITION(mm)']**2)
-        sorted_df = log.patient_sss_df.sort_values(by=['DOSE/CURR'], ascending=True)
-        angles = sorted_df.GANTRY_ANGLE.drop_duplicates().to_list()
-        # sorted_df = sorted_df.loc[sorted_df.BEAM_ID == '6']
-
-        g = sns.pairplot(sorted_df, vars=['DELTA_X(mm)_MEAN', 'DELTA_Y(mm)_MEAN', 'DELTA_X(mm)_STD', 'DELTA_Y(mm)_STD'], hue='DOSE/CURR', corner=True)  #, plot_kws={"s": 5})
-        plt.tight_layout()
-        plt.suptitle(f'''Patient {id} {angles}''', fontweight='bold')
-        out = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports'
-        plt.savefig(os.path.join(out, f'{id}_pairplot_time.png'), dpi=600)
-        plt.show()
-        # log.delta_dependencies()
+        # log.sss_boxplot()
         
     pass
 
