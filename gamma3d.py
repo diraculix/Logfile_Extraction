@@ -1,5 +1,6 @@
 '''
-Tested with Python 3.6.3 & pymedphys 0.36.1
+Tested with Python 3.11.1 & pymedphys 0.36.1
+
 '''
 
 import pymedphys, pydicom, os, time
@@ -16,7 +17,7 @@ def gamma_3d(dpt, dta, path_to_ref, path_to_eval, cutoff=10, interp=10, max=1.1)
     try:
         ref = pymedphys.dicom.zyx_and_dose_from_dataset(pydicom.read_file(path_to_ref))
         eval = pymedphys.dicom.zyx_and_dose_from_dataset(pydicom.read_file(path_to_eval))
-    except:
+    except:  # if datasets are already loaded by pydicom
         ref = pymedphys.dicom.zyx_and_dose_from_dataset(path_to_ref)
         eval = pymedphys.dicom.zyx_and_dose_from_dataset(path_to_eval)
 
