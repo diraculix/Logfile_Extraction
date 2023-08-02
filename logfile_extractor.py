@@ -1196,16 +1196,16 @@ class MachineLog():
         scope_tuning_df = scope_tuning_df.loc[scope_tuning_df['FRACTION_ID'] == fx_id]
 
         print('Tuning violations:')
-        for i, tune_spot in enumerate(scope_tuning_df):
-            if abs(scope_tuning_df['X_POSITION(mm)'].iloc[i]) > 150 or abs(scope_tuning_df['Y_POSITION(mm)'].iloc[i]) > 193:
-                print('  ', '150mm < x =', scope_tuning_df['X_POSITION(mm)'].iloc[i])
-                print('  ', '193mm < y =', scope_tuning_df['Y_POSITION(mm)'].iloc[i])
+        # for i, tune_spot in enumerate(scope_tuning_df):
+        #     if abs(scope_tuning_df['X_POSITION(mm)'].iloc[i]) > 150 or abs(scope_tuning_df['Y_POSITION(mm)'].iloc[i]) > 193:
+        #         print('  ', '150mm < x =', scope_tuning_df['X_POSITION(mm)'].iloc[i])
+        #         print('  ', '193mm < y =', scope_tuning_df['Y_POSITION(mm)'].iloc[i])
         
-        print('Record violations:')
-        for i, rec_spot in enumerate(scope_record_df):
-            if abs(scope_record_df['X_POSITION(mm)'].iloc[i]) > 150 or abs(scope_record_df['Y_POSITION(mm)'].iloc[i]) > 193:
-                print('  ', '150mm < x =', scope_record_df['X_POSITION(mm)'].iloc[i])
-                print('  ', '193mm < y =', scope_record_df['Y_POSITION(mm)'].iloc[i])
+        # print('Record violations:')
+        # for i, rec_spot in enumerate(scope_record_df):
+        #     if abs(scope_record_df['X_POSITION(mm)'].iloc[i]) > 150 or abs(scope_record_df['Y_POSITION(mm)'].iloc[i]) > 193:
+        #         print('  ', '150mm < x =', scope_record_df['X_POSITION(mm)'].iloc[i])
+        #         print('  ', '193mm < y =', scope_record_df['Y_POSITION(mm)'].iloc[i])
 
         print('\nGenerating layer plot..')
         plan_dcm, beam_ds = self.dicom_finder(fraction_id=fx_id, beam_id=beam_id, verbose=True)
@@ -1238,21 +1238,24 @@ class MachineLog():
             spot_mu_sorted = [spot_mu_log[beam_sorting_dict[layer_id][i]] for i in range(len(spot_mu_log))]
             spot_mu_delta = [spot_mu_sorted[i] - plan_mu[i] for i in range(len(spot_mu_sorted))]
             
-            # if beam_id == '3' and layer_id == 13 and fx_id == '20210303':
-            #     fig2, ax2 = plt.subplots(figsize=(6, 6))
-            #     ax2.plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', label='Planned')
-            #     # ax2.plot(*zip(*spot_points_log), marker='o', markerfacecolor='None', linestyle='--', color='grey', label='Log-file original')
-            #     ax2.plot(*zip(*spot_points_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', label='Log-file')
-            #     ax2.plot(*zip(*tuning_points_log), marker='o', markerfacecolor='None', linestyle='None', color='limegreen', label='Tuning spot(s)')
-            #     # ax2.annotate(f'Beam {beam_id} | Layer #{str(layer_id + 1).zfill(2)} | $\Delta$ = {abs(len(plan_x_positions) - len(x_positions))}', xy=(1.0, 1.0), xycoords='axes points')
-            #     ax2.set_xlabel('Spot $x$-position @ISO [mm]')
-            #     ax2.set_ylabel('Spot $y$-position @ISO [mm]')
-            #     ax2.legend()
-            #     fig2.tight_layout()
-            #     fig2.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_spotmap_show.png', dpi=600)
-            #     plt.show()
+            if beam_id == '1' and layer_id == 24:
+                sns.set(style='darkgrid', context='paper', font_scale=1.5)
+                fig2, ax2 = plt.subplots(figsize=(4, 4))
+                ax2.plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', label='Planned')
+                ax2.plot(*zip(*spot_points_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', label='Log file')
+                ax2.plot(*zip(*tuning_points_log), marker='o', linestyle='None', color='limegreen', alpha=0.8, label='Tuning spot(s)')
+                ax2.set_xlabel('$x$-position [mm]')
+                ax2.set_ylabel('$y$-position [mm]')
+                ax2.set_xlim(-100, -50)
+                ax2.set_ylim(45, 95)
+                ax2.legend(loc='upper left')
+                # ax2.grid()
+
+                fig2.tight_layout()
+                fig2.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_{fx_id}_spotmap_show.png', dpi=300)
+                # plt.show()
                
-            #     return None
+                # return None
 
             axs[layer_id].plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', markersize=2.0, markeredgewidth=0.2, linewidth=0.2, label='Planned')
             # MU colour coding still bugged, needs deltaframe for functionality
@@ -1568,7 +1571,7 @@ class MachineLog():
 
 
     def corrupted_maps(self, gtr_only=False):
-        other_records, other_deltas = [], []
+        other_records, other_deltas, other_tunings = [], [], []
         for file in sorted(os.listdir(self.df_destination)):
             if file.__contains__(str(self.patient_id)) and file.__contains__('delta') and file.endswith('.csv'):
                 print(f'''Found patient deltaframe '{file}', reading in..''')
@@ -1577,19 +1580,23 @@ class MachineLog():
                 other_records.append(os.path.join(self.df_destination, file))           
             if file.__contains__('delta') and file.endswith('.csv'):
                 other_deltas.append(os.path.join(self.df_destination, file))   
+            if file.__contains__('tuning') and file.endswith('.csv'):
+                other_tunings.append(os.path.join(self.df_destination, file))   
         
-        to_drop, to_concat = ['TOTAL_LAYERS'], []
+        to_drop, to_concat_rec, to_concat_tun = ['TOTAL_LAYERS'], [], []
 
         print('Gathering data from patient database..')
-        for this_record in other_records:
+        for this_record, this_tuning in zip(other_records, other_tunings):
             has_delta = False
             this_patient_id = this_record.split('\\')[-1].split('_')[1]
             for this_delta in other_deltas:
                 this_delta_id = this_delta.split('\\')[-1].split('_')[1]
                 if this_patient_id == this_delta_id:
                     this_record_df = pd.read_csv(this_record, index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+                    this_tuning_df = pd.read_csv(this_tuning, index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
                     this_joint_df = pd.read_csv(this_delta, index_col='UNIQUE_INDEX', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
                     this_joint_df['PATIENT_ID'] = int(this_patient_id)
+                    this_tuning_df['PATIENT_ID'] = int(this_patient_id)
                     has_delta = True
                     break
 
@@ -1608,16 +1615,19 @@ class MachineLog():
                     this_joint_df['Y_WIDTH(mm)'] = this_record_df['Y_WIDTH(mm)'].to_list()
                     this_joint_df['PRESSURE(hPa)'] = this_record_df['PRESSURE(hPa)'].to_list()
                     this_joint_df['TEMPERATURE(K)'] = this_record_df['TEMPERATURE(K)'].to_list()
-                    to_concat.append(this_joint_df)
+                    to_concat_rec.append(this_joint_df)
+                    to_concat_tun.append(this_tuning_df)
                 else:
                     print(f'  /!\ Dataframe shapes do not match [{this_record_df.shape} vs. {this_joint_df.shape}]')
                     # continue
             
             else:
                 this_joint_df.drop(columns=to_drop, inplace=True)
-                to_concat.append(this_joint_df)
+                to_concat_rec.append(this_joint_df)
+                to_concat_tun.append(this_tuning_df)
         
-        joint_df = pd.concat(to_concat, ignore_index=True)
+        joint_df = pd.concat(to_concat_rec, ignore_index=True)
+        joint_tu = pd.concat(to_concat_tun, ignore_index=True)
         joint_df['DIST(mm)'] = np.sqrt(joint_df['DELTA_X(mm)']**2 + joint_df['DELTA_Y(mm)']**2)
         joint_df['PLAN_X(mm)'] = joint_df['X_POSITION(mm)'] - joint_df['DELTA_X(mm)']
         joint_df['PLAN_Y(mm)'] = joint_df['Y_POSITION(mm)'] - joint_df['DELTA_Y(mm)']
@@ -1632,44 +1642,60 @@ class MachineLog():
         # return None
 
         # Check all layer spotmaps for outliers
-        failed, total, crit = 0, 0, 1.
+        failed, x_fail, y_fail, total, crit = 0, 0, 0, 0, 1.
         for id in joint_df.PATIENT_ID.drop_duplicates():
             # if id != 1230180: continue
             pat_df = joint_df.loc[joint_df.PATIENT_ID == id]
+            pat_tu = joint_tu.loc[joint_tu.PATIENT_ID == id]
             for fx in pat_df.FRACTION_ID.drop_duplicates():
                 fx_df = pat_df.loc[pat_df.FRACTION_ID == fx]
+                fx_tu = pat_tu.loc[pat_tu.FRACTION_ID == fx]
                 for beam in fx_df.BEAM_ID.drop_duplicates():
                     beam_df = fx_df.loc[fx_df.BEAM_ID == beam]
+                    beam_tu = fx_tu.loc[fx_tu.BEAM_ID == beam]
                     for layer in beam_df.LAYER_ID.drop_duplicates():
                         layer_df = beam_df.loc[beam_df.LAYER_ID == layer]
+                        layer_tu = beam_tu.loc[beam_tu.LAYER_ID == layer]
                         mean_dist = layer_df['DIST(mm)'].mean()
+                        mean_x = layer_df['DELTA_X(mm)'].mean()
+                        mean_y = layer_df['DELTA_Y(mm)'].mean()
                         max_delta = max(abs(layer_df['DELTA_X(mm)'].max()), abs(layer_df['DELTA_Y(mm)'].max()))
                         max_mu = max(abs(layer_df['DELTA_MU'].max()), abs(layer_df['DELTA_MU'].min()))
-                        if mean_dist > crit:  # layer isotropically shifted
-                            # plt.plot(layer_df['PLAN_X(mm)'], layer_df['PLAN_Y(mm)'], 'x-', c='tab:blue', label='Planned')
-                            # plt.plot(layer_df['X_POSITION(mm)'], layer_df['Y_POSITION(mm)'], 'o-', c='black', markerfacecolor='None', label='Log file')
-                            # plt.legend(title=f'Mean dist: {mean_dist:.3f} mm')
-                            # plt.title(f'{id} | Date: {fx} | Beam: {beam} | Layer: {layer + 1}')
+                        if (abs(mean_x) > crit or abs(mean_y) > crit):  # layer isotropically shifted
+                            if abs(mean_x) > abs(mean_y):
+                                x_fail += 1
+                            else:
+                                y_fail += 1
+                                # plt.plot(layer_df['PLAN_X(mm)'], layer_df['PLAN_Y(mm)'], 'x-', c='tab:blue', label='Planned')
+                                # plt.plot(layer_df['X_POSITION(mm)'], layer_df['Y_POSITION(mm)'], 'o-', c='black', markerfacecolor='None', label='Log file')
+                                # plt.scatter(layer_tu['X_POSITION(mm)'], layer_tu['Y_POSITION(mm)'], c='lightgreen', label=f'Tuning pulses: {len(layer_tu)}')
+                                # plt.legend(title=f'Mean dist: {mean_dist:.3f} mm')
+                                # plt.title(f'{id} | Date: {fx} | Beam: {beam} ({layer_df.GANTRY_ANGLE.iloc[0]}) | Layer: {layer + 1}')
+                                # # plt.xlim(x_min, x_max)
+                                # # plt.xlim(y_min, y_max)
+                                # plt.tight_layout()
+                                # plt.show()
+                                # print(len(layer_tu) > 1)
+                                failed += 1
+                        if max_mu > 0.065:
+                            # plt.plot(layer_df['PLAN_X(mm)'], layer_df['PLAN_Y(mm)'], 'x-', c='tab:blue', label='Planned', zorder=1)
+                            # plt.scatter(layer_df['X_POSITION(mm)'], layer_df['Y_POSITION(mm)'], c=layer_df['DELTA_MU'], cmap='bwr', vmin=-0.1, vmax=0.1, zorder=3)
+                            # plt.plot(layer_df['X_POSITION(mm)'], layer_df['Y_POSITION(mm)'], 'o-',  c='black', markerfacecolor='white', label='Log file', zorder=2)
+                            # plt.colorbar(label='$\Delta$MU to plan')
+                            # plt.legend(title=f'Max MU diff: {max_mu:.4f} MU')
+                            # plt.title(f'{id} | Date: {fx} | Beam: {beam} | Layer-ID: {layer}')
                             # # plt.xlim(x_min, x_max)
                             # # plt.xlim(y_min, y_max)
                             # plt.tight_layout()
+                            # print(layer_df[['MU', 'PLAN_MU']].iloc[43:45])
                             # plt.show()
-                            failed += 1
-                        if max_mu > 0.065:
-                            plt.plot(layer_df['PLAN_X(mm)'], layer_df['PLAN_Y(mm)'], 'x-', c='tab:blue', label='Planned', zorder=1)
-                            plt.scatter(layer_df['X_POSITION(mm)'], layer_df['Y_POSITION(mm)'], c=layer_df['DELTA_MU'], cmap='bwr', vmin=-0.1, vmax=0.1, zorder=3)
-                            plt.plot(layer_df['X_POSITION(mm)'], layer_df['Y_POSITION(mm)'], 'o-',  c='black', markerfacecolor='white', label='Log file', zorder=2)
-                            plt.colorbar(label='$\Delta$MU to plan')
-                            plt.legend(title=f'Max MU diff: {max_mu:.4f} MU')
-                            plt.title(f'{id} | Date: {fx} | Beam: {beam} | Layer-ID: {layer}')
-                            # plt.xlim(x_min, x_max)
-                            # plt.xlim(y_min, y_max)
-                            plt.tight_layout()
-                            print(layer_df[['MU', 'PLAN_MU']].iloc[43:45])
-                            plt.show()
+                            pass
                         total += 1
         
-        print(f'{failed}/{total} ({failed/total * 100:.1f}%) layers failed {crit} mm mean distance criterion')
+        # print(f'{failed}/{total} ({failed/total * 100:.1f}%) layers failed {crit} mm mean distance criterion')
+        print(f'{x_fail + y_fail}/{total} ({failed/total * 100:.3f}%) of layers failed {crit} mm delta x/y criterion')
+        print(f'From this, {x_fail} ({x_fail/(x_fail + y_fail) * 100:.1f}%) are caused by X error')
+        print(f'From this, {y_fail} ({y_fail/(x_fail + y_fail) * 100:.1f}%) are caused by Y error')
 
 
     def delta_dependencies(self):
@@ -1861,8 +1887,9 @@ class MachineLog():
 
         while True:
             try:
-                key = int(input('\n Select beam key: '))
-                if key > len(beam_list) or key <= 0:
+                key = input('\n Select beam key(s) separated by comma: ')
+                key = [int(k) for k in key.split(',')]
+                if max(key) > len(beam_list) or min(key) <= 0:
                     print('Key out of bounds, select another..')
                     continue
                 else:
@@ -1870,122 +1897,130 @@ class MachineLog():
             except:
                 print('Invalid input, try again..')
 
-        beam_id = str(beam_list[key - 1])
+        beam_ids = [str(beam_list[k - 1]) for k in key]
+        total_beams, flawed = 0, 0
+        print(beam_ids)
 
-        fig, axs = plt.subplots(4, 1, sharex=True, figsize=(10, 9), gridspec_kw={'height_ratios': [3, 1, 1, 1]})
-        # fig.subplots_adjust(hspace=0.0, wspace=0.0)
-        ax0 = fig.add_subplot(111, frameon=False)
-        ax0.set_xticks([]), ax0.set_yticks([])
-        ax0.set_ylabel('Time [s]', labelpad=30, fontweight='bold')
-        ax0.set_xlabel('Fraction-ID', labelpad=30, fontweight='bold')
-        # ax0.set_title(f'Beam timings for patient-ID {self.patient_id}', fontweight='bold')
-        axs.flatten()
-        x_axis = self.fraction_list
-        # for ax in axs:
-        #     ax.set_xticks(range(len(x_axis)))
-        #     ax.set_xticklabels(range(1, len(x_axis) + 1))
+        cmap = sns.color_palette('inferno_r', 6)
+        for beam_id in beam_ids:
+            sns.set(context='paper', style='darkgrid', font_scale=1.5)
+            fig, axs = plt.subplots(4, 1, sharex=True, figsize=(8, 8), gridspec_kw={'height_ratios': [3, 1, 1, 1]})
+            # fig.subplots_adjust(hspace=0.0, wspace=0.0)
+            ax0 = fig.add_subplot(111, frameon=False)
+            ax0.set_xticks([]), ax0.set_yticks([])
+            ax0.set_ylabel('Time [s]', labelpad=50)
+            ax0.set_xlabel('Fraction', labelpad=30)
+            # ax0.set_title(f'Beam timings for patient-ID {self.patient_id}', fontweight='bold')
+            axs.flatten()
+            x_axis = self.fraction_list
+            # for ax in axs:
+            #     ax.set_xticks(range(len(x_axis)))
+            #     ax.set_xticklabels(range(1, len(x_axis) + 1))
 
-        print('\nGenerating beam timing plot..')
-        global_drills, global_spot_switches, global_energy_switches, global_interlocks, totals = [], [], [], [], []
-        for x, fx_id in enumerate(x_axis):  # remember type(fx_id) = <str>
-            beam_df = self.patient_record_df.loc[(self.patient_record_df['BEAM_ID'] == beam_id) & (self.patient_record_df['FRACTION_ID'] == fx_id)]
-            beam_tuning_df = self.patient_tuning_df.loc[(self.patient_tuning_df['BEAM_ID'] == beam_id) & (self.patient_tuning_df['FRACTION_ID'] == fx_id)]
-            if beam_df.empty or beam_tuning_df.empty:
-                print('empty')
-                continue
+            print('\nGenerating beam timing plot..')
+            global_drills, global_spot_switches, global_energy_switches, global_interlocks, totals = [], [], [], [], []
+            for x, fx_id in enumerate(x_axis):  # remember type(fx_id) = <str>
+                total_beams += 1
+                beam_df = self.patient_record_df.loc[(self.patient_record_df['BEAM_ID'] == beam_id) & (self.patient_record_df['FRACTION_ID'] == fx_id)]
+                beam_tuning_df = self.patient_tuning_df.loc[(self.patient_tuning_df['BEAM_ID'] == beam_id) & (self.patient_tuning_df['FRACTION_ID'] == fx_id)]
+                if beam_df.empty or beam_tuning_df.empty:
+                    print('empty')
+                    continue
 
-            total_drill_time = (beam_df['DRILL_TIME(ms)'].sum() + beam_tuning_df['DRILL_TIME(ms)'].sum()) / 1000
-            total_layer_time, total_energy_switch = 0.0, 0.0
-            layer_dfs = [beam_df.loc[beam_df['LAYER_ID'] == lid] for lid in beam_tuning_df['LAYER_ID'].drop_duplicates()]
-            layer_tuning_dfs = [beam_tuning_df.loc[beam_tuning_df['LAYER_ID'] == lid] for lid in beam_tuning_df['LAYER_ID'].drop_duplicates()]
-            for layer_id, layer_df in enumerate(layer_dfs):
-                if layer_df.empty:
-                    layer_df = layer_tuning_dfs[layer_id]  # all layer spots covered during tuning
+                total_drill_time = (beam_df['DRILL_TIME(ms)'].sum() + beam_tuning_df['DRILL_TIME(ms)'].sum()) / 1000
+                total_layer_time, total_energy_switch = 0.0, 0.0
+                layer_dfs = [beam_df.loc[beam_df['LAYER_ID'] == lid] for lid in beam_tuning_df['LAYER_ID'].drop_duplicates()]
+                layer_tuning_dfs = [beam_tuning_df.loc[beam_tuning_df['LAYER_ID'] == lid] for lid in beam_tuning_df['LAYER_ID'].drop_duplicates()]
+                for layer_id, layer_df in enumerate(layer_dfs):
+                    if layer_df.empty:
+                        layer_df = layer_tuning_dfs[layer_id]  # all layer spots covered during tuning
 
-                start_irr = pd.to_datetime(layer_df.first_valid_index())
-                start_tun = pd.to_datetime(layer_tuning_dfs[layer_id].first_valid_index())
-                end_irr = pd.to_datetime(layer_df.last_valid_index())
-                layer_time = end_irr - start_irr
-                total_layer_time += layer_time.total_seconds()
+                    start_irr = pd.to_datetime(layer_df.first_valid_index())
+                    start_tun = pd.to_datetime(layer_tuning_dfs[layer_id].first_valid_index())
+                    end_irr = pd.to_datetime(layer_df.last_valid_index())
+                    layer_time = end_irr - start_irr
+                    total_layer_time += layer_time.total_seconds()
+                    
+                    if layer_id > 0:
+                        if layer_dfs[layer_id - 1].empty:
+                            end_prev = pd.to_datetime(layer_tuning_dfs[layer_id - 1].last_valid_index())
+                        else:
+                            end_prev = pd.to_datetime(layer_dfs[layer_id - 1].last_valid_index())
+
+                        energy_switch = start_tun - end_prev
+                        total_energy_switch += energy_switch.total_seconds()
                 
-                if layer_id > 0:
-                    if layer_dfs[layer_id - 1].empty:
-                        end_prev = pd.to_datetime(layer_tuning_dfs[layer_id - 1].last_valid_index())
-                    else:
-                        end_prev = pd.to_datetime(layer_dfs[layer_id - 1].last_valid_index())
+                total_spot_switch = total_layer_time - total_drill_time
+                
+                fx_dir = os.path.join(logfile_root, self.patient_id, fx_id, beam_id)
+                has_interlock, has_pause, total_interlock = False, False, 0.0
+                for file in os.listdir(fx_dir):
+                    if file.__contains__('events') and file.endswith('.csv'):
+                        events = open(os.path.join(fx_dir, file)).readlines()
+                        for i, line in enumerate(events):
+                            if line.__contains__('RESUME_REQUESTED'):
+                                print(f'  /!\ Interlock detected in fraction {x + 1} ({fx_id})')
+                                resume_time = pd.to_datetime(line.split(',')[0])
+                                stop_time = pd.to_datetime(events[i - 1].split(',')[0])
+                                has_interlock = True
+                                if has_pause:
+                                    total_interlock += (resume_time - pause_time).total_seconds()
+                                else:
+                                    total_interlock += (resume_time - stop_time).total_seconds()
+                                has_pause = False
 
-                    energy_switch = start_tun - end_prev
-                    total_energy_switch += energy_switch.total_seconds()
+                            elif line.__contains__('PAUSE_REQUESTED'):
+                                pause_time = pd.to_datetime(events[i - 1].split(',')[0])
+                                has_pause = True
+                
+                if has_interlock:
+                    if total_spot_switch > np.median(global_spot_switches) + 2:
+                        print('      (Spot switch)')
+                        total_spot_switch -= total_interlock
+                    if total_energy_switch > np.median(global_energy_switches) + 3:
+                        print('      (Energy switch)')
+                        total_energy_switch -= total_interlock
+                    
+                    flawed += 1
+
+                global_drills.append(total_drill_time), global_spot_switches.append(total_spot_switch), global_energy_switches.append(total_energy_switch), global_interlocks.append(total_interlock)
+                totals.append(total_drill_time + total_spot_switch + total_energy_switch)
             
-            total_spot_switch = total_layer_time - total_drill_time
-            
-            fx_dir = os.path.join(logfile_root, self.patient_id, fx_id, beam_id)
-            has_interlock, has_pause, total_interlock = False, False, 0.0
-            for file in os.listdir(fx_dir):
-                if file.__contains__('events') and file.endswith('.csv'):
-                    events = open(os.path.join(fx_dir, file)).readlines()
-                    for i, line in enumerate(events):
-                        if line.__contains__('RESUME_REQUESTED'):
-                            print(f'  /!\ Interlock detected in fraction {x + 1} ({fx_id})')
-                            resume_time = pd.to_datetime(line.split(',')[0])
-                            stop_time = pd.to_datetime(events[i - 1].split(',')[0])
-                            has_interlock = True
-                            if has_pause:
-                                total_interlock += (resume_time - pause_time).total_seconds()
-                            else:
-                                total_interlock += (resume_time - stop_time).total_seconds()
-                            has_pause = False
+            global_drills = np.array(global_drills)
+            global_spot_switches = np.array(global_spot_switches)
+            global_energy_switches = np.array(global_energy_switches)
+            global_interlocks = np.array(global_interlocks)
 
-                        elif line.__contains__('PAUSE_REQUESTED'):
-                            pause_time = pd.to_datetime(events[i - 1].split(',')[0])
-                            has_pause = True
-            
-            if has_interlock:
-                if total_spot_switch > np.median(global_spot_switches) + 2:
-                    print('      (Spot switch)')
-                    total_spot_switch -= total_interlock
-                if total_energy_switch > np.median(global_energy_switches) + 3:
-                    print('      (Energy switch)')
-                    total_energy_switch -= total_interlock
+            print(f'\n\t\tMean\tMin\tMax\tSigma')
+            print(f'Drill\t\t{np.mean(global_drills):.3f}\t{min(global_drills):.3f}\t{max(global_drills):.3f}\t{np.std(global_drills):.3f}')
+            print(f'Spot switch\t{np.mean(global_spot_switches):.3f}\t{min(global_spot_switches):.3f}\t{max(global_spot_switches):.3f}\t{np.std(global_spot_switches):.3f}')
+            print(f'Energy switch\t{np.mean(global_energy_switches):.3f}\t{min(global_energy_switches):.3f}\t{max(global_energy_switches):.3f}\t{np.std(global_energy_switches):.3f}')
+            print('_____________________________________________________')
+            print(f'Total beamtime\t{np.mean(totals):.3f}\t{min(totals):.3f}\t{max(totals):.3f}\t{np.std(totals):.3f}\n')
 
-            global_drills.append(total_drill_time), global_spot_switches.append(total_spot_switch), global_energy_switches.append(total_energy_switch), global_interlocks.append(total_interlock)
-            totals.append(total_drill_time + total_spot_switch + total_energy_switch)
-        
-        global_drills = np.array(global_drills)
-        global_spot_switches = np.array(global_spot_switches)
-        global_energy_switches = np.array(global_energy_switches)
-        global_interlocks = np.array(global_interlocks)
+            ec = 'none'
+            axs[0].bar(range(1, len(global_drills) + 1), global_drills, label='Drill', color=cmap[0], edgecolor=ec)
+            axs[0].bar(range(1, len(global_spot_switches) + 1), global_spot_switches, bottom=global_drills, label='Spot switch', color=cmap[1], edgecolor=ec)
+            axs[0].bar(range(1, len(global_energy_switches) + 1), global_energy_switches, bottom=global_spot_switches + global_drills, label='Energy switch', color=cmap[2], edgecolor=ec)
+            axs[0].bar(range(1, len(global_interlocks) + 1), global_interlocks, bottom=global_spot_switches + global_drills + global_energy_switches, label='Pause (interlock)', color=cmap[4], edgecolor=ec)
+            axs[3].plot(range(1, len(global_drills) + 1), global_drills, marker='o', color='black', markerfacecolor=cmap[0], label='Drill')
+            axs[3].axhline(np.mean(global_drills), ls='--', color='black', lw=1.0, zorder=-1, label='Mean')
+            axs[3].set_xticks([1, 5, 10, 15, 20, 25, 30, 35, 40])
+            axs[2].plot(range(1, len(global_spot_switches) + 1), global_spot_switches, marker='o', color='black', markerfacecolor=cmap[1], label='Spot switch')  
+            axs[2].axhline(np.mean(global_spot_switches), ls='--', color='black', lw=1.0, zorder=-1, label='Mean')
+            axs[1].plot(range(1, len(global_energy_switches) + 1), global_energy_switches, marker='o', color='black', markerfacecolor=cmap[2], label='Energy switch')  
+            axs[1].axhline(np.mean(global_energy_switches), ls='--', color='black', lw=1.0, zorder=-1, label='Mean')
 
-        print(f'\n\t\tMean\tMin\tMax\tSigma')
-        print(f'Drill\t\t{np.mean(global_drills):.3f}\t{min(global_drills):.3f}\t{max(global_drills):.3f}\t{np.std(global_drills):.3f}')
-        print(f'Spot switch\t{np.mean(global_spot_switches):.3f}\t{min(global_spot_switches):.3f}\t{max(global_spot_switches):.3f}\t{np.std(global_spot_switches):.3f}')
-        print(f'Energy switch\t{np.mean(global_energy_switches):.3f}\t{min(global_energy_switches):.3f}\t{max(global_energy_switches):.3f}\t{np.std(global_energy_switches):.3f}')
-        print('_____________________________________________________')
-        print(f'Total beamtime\t{np.mean(totals):.3f}\t{min(totals):.3f}\t{max(totals):.3f}\t{np.std(totals):.3f}\n')
-
-        return None
-
-        ec = 'none'
-        sns.set(style='whitegrid')
-        axs[0].bar(range(1, len(global_drills) + 1), global_drills, label='Drill', color='yellow', edgecolor=ec)
-        axs[0].bar(range(1, len(global_spot_switches) + 1), global_spot_switches, bottom=global_drills, label='Spot switch', color='tab:orange', edgecolor=ec)
-        axs[0].bar(range(1, len(global_energy_switches) + 1), global_energy_switches, bottom=global_spot_switches + global_drills, label='Energy switch', color='tab:red', edgecolor=ec)
-        axs[0].bar(range(1, len(global_interlocks) + 1), global_interlocks, bottom=global_spot_switches + global_drills + global_energy_switches, label='Pause (interlock)', color='tab:purple', edgecolor=ec)
-        axs[3].plot(range(1, len(global_drills) + 1), global_drills, marker='o', color='black', markerfacecolor='yellow', label='Drill')
-        axs[3].axhline(np.mean(global_drills), ls='--', color='black', lw=1.0, zorder=-1, label='$\\bar{x} \pm \sigma =$' + f' ({np.mean(global_drills):.2f} $\pm$ {np.std(global_drills):.2f}) s')
-        axs[3].set_xticks([1, 5, 10, 15, 20, 25, 30, 35, 40])
-        axs[2].plot(range(1, len(global_spot_switches) + 1), global_spot_switches, marker='o', color='black', markerfacecolor='tab:orange', label='Spot switch')  
-        axs[2].axhline(np.mean(global_spot_switches), ls='--', color='black', lw=1.0, zorder=-1, label='$\\bar{x} \pm \sigma =$' + f' ({np.mean(global_spot_switches):.2f} $\pm$ {np.std(global_spot_switches):.2f}) s')
-        axs[1].plot(range(1, len(global_energy_switches) + 1), global_energy_switches, marker='o', color='black', markerfacecolor='tab:red', label='Energy switch')  
-        axs[1].axhline(np.mean(global_energy_switches), ls='--', color='black', lw=1.0, zorder=-1, label='$\\bar{x} \pm \sigma =$' + f' ({np.mean(global_energy_switches):.2f} $\pm$ {np.std(global_energy_switches):.2f}) s')
-
-        for ax in axs:
-            ax.legend(loc='upper left')
-            ax.set_axisbelow(True)
-            ax.grid(axis='y')        
-        plt.tight_layout()
-        plt.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_beamtime.png', dpi=300)        
-        # plt.show()
+            for i, ax in enumerate(axs):
+                if i == 0:
+                    ax.legend(loc='upper left')
+                else:
+                    ax.legend(loc='upper left', ncol=2)
+                ax.set_axisbelow(True)
+                # ax.grid(axis='both')        
+            plt.tight_layout()
+            plt.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_beamtime.png', dpi=300)        
+            # plt.show()
 
 
     def plan_creator(self, fraction, mode):
@@ -2749,49 +2784,71 @@ class MachineLog():
         print('             Y', df['DELTA_Y(mm)_STD'].mean(), '+-', df['DELTA_Y(mm)_STD'].std(), 'mm', 'MAX', df['DELTA_Y(mm)_STD'].max())
         print('             MU', df['DELTA_MU_STD'].mean(), '+-', df['DELTA_MU_STD'].std(), 'mm', 'MAX', abs(df['DELTA_MU_STD']).max())
 
-        sns.set(style='whitegrid', context='talk')
-        cmap = sns.color_palette()
-        bw1 = 4 / 100
-        bw2 = 0.6 / 100
-        with sns.axes_style('ticks'):
-            h1 = sns.histplot(df['DELTA_X(mm)_MEAN'],color=cmap[0], label='$\mu_{\Delta x}$', binwidth=bw1)
-            h2 = sns.histplot(df['DELTA_Y(mm)_MEAN'],color=cmap[1], label='$\mu_{\Delta y}$', binwidth=bw1)
-        plt.xlabel('LF single spot accuracy [mm]')
-        plt.xlim(-2., 2.)
-        plt.grid()
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(os.path.join(out, 'histogram_all_xymean.png'), dpi=600)
-        plt.cla(), plt.clf()
-        with sns.axes_style('ticks'):
-            h3 = sns.histplot(df['DELTA_X(mm)_STD'],color=cmap[0], label='$\sigma_{\Delta x}$', binwidth=bw2)
-            h4 = sns.histplot(df['DELTA_Y(mm)_STD'],color=cmap[1], label='$\sigma_{\Delta y}$', binwidth=bw2)
-        plt.xlabel('LF single spot precision [mm]')
-        plt.xlim(0., 0.6)
-        plt.grid()
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(os.path.join(out, 'histogram_all_xystd.png'), dpi=600)
+        sns.set(style='darkgrid', context='paper', font_scale=2.)
+        cm = 1 / 2.54
+        figh, axh = plt.subplots(3, 2, figsize=(16, 12))
+        axh = axh.flatten()
+        cmap = sns.color_palette('Paired', 8)
+
+        bw1 = 5 / 80
+        bw2 = 0.6 / 80
+
+        h1 = sns.histplot(df['DELTA_X(mm)_MEAN'],color=cmap[0], ax=axh[0], label='$\mu_{\Delta x}$', binrange=(-2.5, 2.5), binwidth=bw1, zorder=2)
+        h2 = sns.histplot(df['DELTA_Y(mm)_MEAN'],color=cmap[1], ax=axh[0], label='$\mu_{\Delta y}$', binrange=(-2.5, 2.5), binwidth=bw1, zorder=1)
+
+        h3 = sns.histplot(df['DELTA_X(mm)_STD'],color=cmap[6], ax=axh[1], label='$\sigma_{\Delta x}$', binrange=(0., 0.6), binwidth=bw2, zorder=2)
+        h4 = sns.histplot(df['DELTA_Y(mm)_STD'],color=cmap[7], ax=axh[1], label='$\sigma_{\Delta y}$', binrange=(0., 0.6), binwidth=bw2, zorder=1)
+
+        axh[0].set_xlabel('$\mu_{\Delta x,y}$ [mm]')
+        axh[0].set_xlim(-2.5, 2.5)
+        axh[0].xaxis.set_major_formatter(FormatStrFormatter('%.1f'))
+        axh[1].set_xlabel('$\sigma_{\Delta x,y}$ [mm]')
+        axh[1].set_ylabel(None)
+        axh[1].set_xlim(0, 0.6)
+        for a in axh:
+            a.legend(loc='upper right')
+
+        # figh.tight_layout()
+        # figh.savefig(os.path.join(out, 'histograms_all.png'), dpi=600)
         # plt.show()
         
-        sns.set(style='whitegrid')
-        fig, axs = plt.subplots(3, 1, figsize=(7, 7))
-        target_cols = [['DELTA_X(mm)_MEAN', 'DELTA_X(mm)_STD', 'MEDIAN_X_STD'], ['DELTA_Y(mm)_MEAN', 'DELTA_Y(mm)_STD', 'MEDIAN_Y_STD'], ['DELTA_MU_MEAN', 'DELTA_MU_STD', 'MEDIAN_MU_STD']] #, ['DELTA_MU_MEAN', 'DELTA_MU_STD', 'MEDIAN_MU_STD']]
-        legend = [[Patch(facecolor=cmap[i], edgecolor=cmap[i], label='Single spot precision'), 
-                  Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & Median')] for i in range(len(target_cols))]
-        
-        for i, (ax, cols) in enumerate(zip(axs, target_cols)):
-            # vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=cols[0], color=cmap[i], ax=ax, width=10, scale='width', order=np.arange(360))
-            vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=cols[1], color=cmap[i], ax=ax, width=10, scale='width', order=np.arange(360))
-            for collect in ax.collections:
-                collect.set_edgecolor('None')
+        # sns.set(style='darkgrid', context='paper', font_scale=1.5)
+        # fig, axs = plt.subplots(2, 1, figsize=(7, 7))
+        ec = 'black'
+        target_cols = ['DELTA_X(mm)_MEAN', 'DELTA_X(mm)_STD', 'DELTA_Y(mm)_MEAN', 'DELTA_Y(mm)_STD']  #, ['DELTA_MU_MEAN', 'DELTA_MU_STD', 'MEDIAN_MU_STD']] #, ['DELTA_MU_MEAN', 'DELTA_MU_STD', 'MEDIAN_MU_STD']]
+        legend = [[Patch(facecolor=cmap[0], edgecolor=ec, alpha=0.8, label=f'$x$-accuracy'), 
+                  Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & median')],
+                  [Patch(facecolor=cmap[6], edgecolor=ec, alpha=0.8, label=f'$x$-precision'), 
+                  Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & median')],
+                  [Patch(facecolor=cmap[1], edgecolor=ec, alpha=0.8, label=f'$y$-accuracy'), 
+                  Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & median')],
+                  [Patch(facecolor=cmap[7], edgecolor=ec, alpha=0.8, label=f'$y$-precision'), 
+                  Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & median')]]
 
-            ax.yaxis.set_major_formatter(FormatStrFormatter('%.3f'))
-            if i == 2:
-                ax.set_xlabel('Gantry angle [°]')
+        for i, (ax, col) in enumerate(zip(axh[2:], target_cols)):
+            if i < 2:
+                if i % 2 == 0:
+                    vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=col, color=cmap[0], ax=ax, width=10, scale='width', cut=0, order=np.arange(360))
+                else:
+                    vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=col, color=cmap[6], ax=ax, width=10, scale='width', cut=0, order=np.arange(360))
             else:
-                ax.set_xlabel(None)
+                if i % 2 == 0:
+                    vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=col, color=cmap[1], ax=ax, width=10, scale='width', cut=0, order=np.arange(360))
+                else:
+                    vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=col, color=cmap[7], ax=ax, width=10, scale='width', cut=0, order=np.arange(360))
+ 
+            # bp1 = sns.boxplot(data=df, x='GANTRY_ANGLE', y=cols[1], color=cmap[i], ax=ax, width=10, order=np.arange(360), showfliers=True)
+            for collect in ax.collections:
+                # collect.set_edgecolor('None')
+                pass
+
+            ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
+            if i % 2 == 0:
+                ax.set_ylim(-2.5, 2.5)
+            else:
+                ax.set_ylim(0, .8)
             
+            ax.set_xlabel(None)
             ax.set_xlim(-10, )
             ax.legend(handles=legend[i], loc='upper right')
             tick_every = 45
@@ -2799,16 +2856,28 @@ class MachineLog():
         
         # axs[0].legend(handles=legend, loc='upper right')
         # axs[0].set_title('Treatment fields grouped by gantry position')
-        axs[0].set_ylim(0, .8)
-        axs[0].set_ylabel('$\sigma_x$ [mm]')
-        axs[1].set_ylim(0, .8)
-        axs[1].set_ylabel('$\sigma_y$ [mm]')
-        axs[2].set_ylim(0, 0.01)
-        axs[2].set_ylabel('$\sigma_D$ [MU]')
+        # axs[0].set_ylim(0, .8)
+        axh[2].set_ylabel('$\mu_x$ [mm]')
+        axh[3].set_ylabel('$\sigma_x$ [mm]')
+        axh[4].set_ylabel('$\mu_y$ [mm]')
+        axh[4].set_xlabel('Gantry angle [°]')
+        axh[5].set_ylabel('$\sigma_y$ [mm]')
+        axh[5].set_xlabel('Gantry angle [°]')
+        # axs[2].set_ylim(0, 0.005)
         # fig.suptitle(f'             Log-file Reproducibility', fontweight='bold')
-        # plt.tight_layout()
-        plt.savefig(os.path.join(out, 'boxplots_precision.png'), dpi=300)
+        figh.tight_layout()
+        figh.subplots_adjust(hspace=0.3)
+        figh.savefig(os.path.join(out, 'boxplots_precision.png'), dpi=300)
+        
+        # outliers
+        Q1 = df.quantile(0.25)
+        Q3 = df.quantile(0.75)
+        IQR = Q3 - Q1
+        print(((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).sum() / len(df) * 100)
+
+
         # plt.show()
+
 
     def split_sigma(self):
         out = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports'
@@ -2825,24 +2894,28 @@ class MachineLog():
             print(f'/x\ No single spot statistics data found for patient-ID {self.patient_id}, exiting..')
             return None
         
-        # sns.set()
-        # ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
+        sns.set(style='darkgrid', context='paper', font_scale=1.5)
+        ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
         bs_file = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\cct_entities.csv'
         bs_data = pd.read_csv(bs_file, delimiter=';')
-        # bs_data = bs_data.loc[bs_data.PATIENT_ID.astype(str).isin(ponaqua_qualified)]
-        # values = bs_data.value_counts('BODY_SITE').values
-        # def make_autopct(values):
-        #     def my_autopct(pct):
-        #         total = sum(values)
-        #         val = int(round(pct*total/100.0))
-        #         return '{v:d}'.format(v=val)
-        #     return my_autopct
+        bs_data = bs_data.loc[bs_data.PATIENT_ID.astype(str).isin(ponaqua_qualified)]
+        bs_data.loc[bs_data.BODY_SITE == 'HNC/Paranasal/Eye'] = 'Oral cavity'
+        bs_data.loc[bs_data.BODY_SITE == 'Skull/-base'] = 'Skull base'
+        bs_data.loc[bs_data.BODY_SITE == 'Liver/Kidney'] = 'Kidney'
+        bs_data.loc[bs_data.BODY_SITE == 'Lung/BCA'] = 'Lung'
+        bs_data.loc[bs_data.BODY_SITE == 'Head/Glio'] = 'Brain'
+        values = bs_data.value_counts('BODY_SITE').values
+        def make_autopct(values):
+            def my_autopct(pct):
+                total = sum(values)
+                val = int(round(pct*total/100.0))
+                return '{v:d}'.format(v=val)
+            return my_autopct
         
-        # bs_data.value_counts('BODY_SITE').plot.pie(y='BODY_SITE', autopct=make_autopct(values))
-        # plt.tight_layout
-        # plt.savefig(os.path.join(out, f'ponaqua_piechart.png'), dpi=300)
-        # # plt.show()
-        # return None
+        bs_data.value_counts('BODY_SITE').plot.pie(y='BODY_SITE', autopct=make_autopct(values))
+        plt.tight_layout()
+        plt.savefig(os.path.join(out, f'ponaqua_piechart.png'), dpi=300)
+        # plt.show()
     
         bs_dict = bs_data.to_dict()
         
@@ -2897,28 +2970,42 @@ class MachineLog():
 
         if int(self.patient_id) == 1700535:
             df1 = self.patient_sss_df.loc[(np.round(self.patient_sss_df['LAYER_ENERGY(MeV)'], 1) == 165.1) & (self.patient_sss_df.BEAM_ID == '1')]
+            hist1 = self.patient_sss_df.loc[(self.patient_sss_df.BEAM_ID == '1')]
             df2 = self.patient_sss_df.loc[(np.round(self.patient_sss_df['LAYER_ENERGY(MeV)'], 1) == 165.9) & (self.patient_sss_df.BEAM_ID == '2')]
+            hist2 = self.patient_sss_df.loc[(self.patient_sss_df.BEAM_ID == '2')]
 
-            sns.set(style='darkgrid', context='paper')
-            fig2, axs = plt.subplots(1, 2, sharex=True, sharey=True, figsize=(10, 5))
-            fig2.subplots_adjust(wspace=0.1)
+            sns.set(style='darkgrid', context='paper', font_scale=1.5)
+            fig1, ax = plt.subplots(1, 1, figsize=(8, 4), constrained_layout=True)
+            fig2, axs = plt.subplots(1, 2, sharex=True, sharey=True, figsize=(8, 4), constrained_layout=True)
+            # cax = fig2.add_axes([0.1, 0., 0.8, 0.05])
+            # fig2.subplots_adjust(wspace=0.1)
             norm = plt.Normalize(0, 0.3)
+            cmap = plt.get_cmap('YlOrBr')
+            h1 = sns.histplot(data=hist1, x='DELTA_X(mm)_STD', ax=ax, color=cmap(0.4), binwidth=0.3/80, binrange=(0, 0.3), label='Beam 1 - 180°', zorder=2)
+            h2 = sns.histplot(data=hist2, x='DELTA_X(mm)_STD', ax=ax, color=cmap(0.9), binwidth=0.3/80, binrange=(0, 0.3), label='Beam 2 - 90°', zorder=1)
             s1 = sns.scatterplot(data=df1, x='X_POSITION(mm)', y='Y_POSITION(mm)', hue='DELTA_X(mm)_STD', hue_norm=norm, size='MU', size_norm=(0.02, 0.8), sizes=(30, 200), ax=axs[0], palette='YlOrBr', legend=None)
             s2 = sns.scatterplot(data=df2, x='X_POSITION(mm)', y='Y_POSITION(mm)', hue='DELTA_X(mm)_STD', hue_norm=norm, size='MU', size_norm=(0.02, 0.8), sizes=(30, 200), ax=axs[1], palette='YlOrBr', legend='brief')
             h,l = s2.get_legend_handles_labels()
+            ax.legend()
+            ax.set_ylim(0, 350)
             axs[1].get_legend().remove()
-            axs[1].legend(h[6:], l[6:], bbox_to_anchor=(0., 1.), loc=2)
+            axs[1].legend(h[6:], l[6:], bbox_to_anchor=(0., 1.), loc=2, markerscale=1.)
             # axs[1].set_title(f'Beam 2 ({df2.GANTRY_ANGLE.iloc[0]}°)')
-            axs[0].set_xlabel('$x$ [mm]'), axs[1].set_xlabel('$x$ [mm]')
+            ax.set_xlabel('$\sigma_{\Delta x}$ [mm]')
+            ax.set_xlim(0, 0.3)
+            axs[0].set_xlabel('$x$-position [mm]'), axs[1].set_xlabel('$x$-position [mm]')
             # axs[0].set_title(f'Beam 1 ({df1.GANTRY_ANGLE.iloc[0]}°)')
-            axs[0].set_ylabel('$y$ [mm]')
+            axs[0].set_ylabel('$y$-position [mm]')
             # for ax in axs:
             #     ax.grid()
             sm = plt.cm.ScalarMappable(cmap='YlOrBr', norm=norm)
-            cbar_ax = fig2.add_axes((.75, .11, .2, .77))
-            cbar_ax.set_visible(False)
-            cbar_ax.figure.colorbar(sm, ax=cbar_ax, label='$\sigma_{\Delta x}$ [mm]')
+            # cbar_ax = fig2.add_axes((.75, .11, .2, .77))
+            # cbar_ax.set_visible(False)
+            # cbar_ax.figure.colorbar(sm, ax=cbar_ax, label='$\sigma_{\Delta x}$ [mm]')
+            # fig2.colorbar(sm, orientation='horizontal', cax=cax, label='$\sigma_{\Delta x}$ [mm]')
+            fig2.colorbar(sm, ax=axs.ravel().tolist(), orientation='horizontal', aspect=40, label='$\sigma_{\Delta x}$ [mm]')
             # fig2.suptitle(f'''PATIENT {self.patient_id} ({bs_dict['BODY_SITE'][int(self.patient_id)]})''', fontweight='bold')
+            fig1.savefig(os.path.join(out, f'{self.patient_id}_beam_{beam_id}_split_paper.png'), dpi=600)  
             fig2.savefig(os.path.join(out, f'{self.patient_id}_beam_{beam_id}_sigma_paper.png'), dpi=600)   
         
 
@@ -2927,11 +3014,12 @@ if __name__ == '__main__':
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
-    # root_dir = r'/home/luke/Scripts/Logfile_Extraction/1676348/Logfiles'
 
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
+    total_logfiles = 0
+    all_interlocks, all_beams = 0, 0
     for id in ponaqua_qualified:
-        if int(id) != 1230180: continue  # worst y-shift
+        if int(id) != 1700535: continue  # worst y-shift
         log = MachineLog(os.path.join(root_dir, id))
         # log.split_sigma()
         # log.prepare_deltaframe()
@@ -2940,17 +3028,20 @@ if __name__ == '__main__':
         # print(id, miny, maxy)
         # print(log.patient_delta_df.loc[log.patient_delta_df['DELTA_Y(mm)'].idxmin()], log.patient_delta_df.loc[log.patient_delta_df['DELTA_Y(mm)'].idxmax()])
         # log.beam_timings()
-        log.prepare_dataframe()
+        # log.prepare_dataframe()
         # log.prepare_deltaframe()
         # log.prepare_sss_dataframe()
         # log.sss_histograms(mode='pos')
-        # log.split_sigma()
+        log.split_sigma()
         # log.plot_beam_layers()
         # log.sss_boxplot()
-        log.corrupted_maps()
+        # log.corrupted_maps()
+        # interlock, total = log.beam_timings()
+        # all_interlocks += interlock
+        # all_beams += total
+    
+    # print(all_interlocks, '/', all_beams, '(', all_interlocks / all_beams * 100, '%)')
         
-    pass
-
 else:
     print('>> Module', __name__, 'loaded')
     
