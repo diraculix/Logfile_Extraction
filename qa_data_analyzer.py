@@ -162,6 +162,19 @@ def fit_sin(t, y):
 
 
 def angle_plot(qa_df):
+    from matplotlib.patches import Patch
+    from matplotlib.lines import Line2D
+    import seaborn.categorical
+    seaborn.categorical._Old_Violin = seaborn.categorical._ViolinPlotter
+
+    class _My_ViolinPlotter(seaborn.categorical._Old_Violin):
+
+        def __init__(self, *args, **kwargs):
+            super(_My_ViolinPlotter, self).__init__(*args, **kwargs)
+            self.gray='black'
+
+    seaborn.categorical._ViolinPlotter = _My_ViolinPlotter
+
     # qa_df = qa_df.loc[qa_df.FRACTION_ID.astype(int) > 20210000]  # no big difference
     angles = sorted(qa_df.GANTRY_ANGLE.drop_duplicates().to_list())
     x_diff_scatter = zip(qa_df.GANTRY_ANGLE, qa_df['DELTA_X(mm)'])
@@ -184,19 +197,24 @@ def angle_plot(qa_df):
     sine_fit_x = fit_sin(angles, x_median_diffs)
     sine_fit_y = fit_sin(angles, y_median_diffs)
 
-    sns.set(style='whitegrid')
+    sns.set(style='whitegrid', context='talk', font_scale=0.8)
     # axs[0].scatter(*zip(*x_diff_scatter), alpha=0.2, label='$\Delta x$ to plan', zorder=10)
     # axs[0].scatter(angles, x_mean_diffs, edgecolors='black', c='white', label='mean shift', zorder=30)
     axs[0].plot(x_axis, sine_fit_x(x_axis), c='black', label='Sine fit')
-    axs[0].annotate('X', xy=(.9, .05), xycoords='axes fraction', fontweight='bold', fontsize=26)
-    sns.violinplot(data=qa_df, x=qa_df.GANTRY_ANGLE, y=qa_df['DELTA_X(mm)'], ax=axs[0], color='tab:blue', lc='black', order=np.arange(360), width=20, scale='width', label='$\Delta x$')
+    sns.violinplot(data=qa_df, x=qa_df.GANTRY_ANGLE, y=qa_df['DELTA_X(mm)'], ax=axs[0], color=sns.color_palette()[0], lc='black', order=np.arange(360), width=20, scale='width', cut=0)
 
     # axs[1].scatter(*zip(*y_diff_scatter), alpha=0.2, label='$\Delta y$ to plan', zorder=10)
     # axs[1].scatter(angles, y_mean_diffs, edgecolors='black', c='white', label='mean shift', zorder=30)
     axs[1].plot(x_axis, sine_fit_y(x_axis), c='black', label='Sine fit')
-    axs[1].annotate('Y', xy=(.9, .05), xycoords='axes fraction', fontweight='bold', fontsize=26)
-    sns.violinplot(data=qa_df, x=qa_df.GANTRY_ANGLE, y=qa_df['DELTA_Y(mm)'], ax=axs[1], color='tab:orange', lc='black', order=np.arange(360), width=20, scale='width', label='$\Delta y$')
+    sns.violinplot(data=qa_df, x=qa_df.GANTRY_ANGLE, y=qa_df['DELTA_Y(mm)'], ax=axs[1], color=sns.color_palette()[1], lc='black', order=np.arange(360), width=20, scale='width', cut=0)
     
+    legend1 = [Patch(facecolor=sns.color_palette()[0], edgecolor='None', label='$\Delta x$ distribution'),
+              Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & Median'),
+              Line2D([0], [0], color='black', label='Sine fit')]
+    legend2 = [Patch(facecolor=sns.color_palette()[1], edgecolor='None', label='$\Delta y$ distribution'),
+              Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & Median'),
+              Line2D([0], [0], color='black', label='Sine fit')]
+
     for ax in axs:
         ax.set_xlabel('Gantry angle [°]')
         ax.set_xlim(-20, 335)
@@ -205,13 +223,55 @@ def angle_plot(qa_df):
         # [tick.set_visible(False) for (i, tick) in enumerate(ax.get_xticklabels()) if i % tick_every != 0]
         ax.set_xticks([0, 45, 90, 135, 180, 225, 270, 315])
         ax.set_axisbelow(True)
-        # ax.legend()
+        for collect in ax.collections:
+                collect.set_edgecolor('None')
     
-    axs[0].set_ylabel('Positional error [mm]')
-    axs[0].set_ylim(-3, 3)
+    axs[0].set_ylabel('Spot position error [mm]')
+    axs[0].legend(handles=legend1, loc='lower right')
+    axs[0].set_ylim(-3., 3.)
+    axs[1].legend(handles=legend2, loc='lower right')
 
     plt.tight_layout()
     plt.savefig(f'{output_dir}/QA_gantry_sine_fit.png', dpi=300)
+    plt.show()
+
+
+def significance(qa_df):
+    from scipy.stats import normaltest, ttest_ind, kstest
+    zero_df = qa_df.loc[qa_df.GANTRY_ANGLE == 0.]
+    angles = sorted(qa_df.GANTRY_ANGLE.drop_duplicates().to_list())
+    for g in angles:
+        df = qa_df.loc[qa_df.GANTRY_ANGLE == g]
+        print(g)
+        print('\tX:\t', ttest_ind(zero_df['DELTA_X(mm)'], df['DELTA_X(mm)']).pvalue)
+        print('\tY:\t', ttest_ind(zero_df['DELTA_Y(mm)'], df['DELTA_Y(mm)']).pvalue)
+
+    df90 = qa_df.loc[qa_df.GANTRY_ANGLE == 90.]
+    df270 = qa_df.loc[qa_df.GANTRY_ANGLE == 270.]
+    sns.histplot(df90['DELTA_X(mm)'])
+    sns.histplot(df270['DELTA_X(mm)'])
+    plt.show()
+
+
+def histograms(qa_df):
+    # statistical info
+    print('Error\tMAX\tMEAN\tSTD')
+    print(f"X:\t{qa_df['DELTA_X(mm)'].max().round(3)}\t{qa_df['DELTA_X(mm)'].mean().round(3)}\t{qa_df['DELTA_X(mm)'].std().round(3)}")
+    print(f"Y:\t{qa_df['DELTA_Y(mm)'].max().round(3)}\t{qa_df['DELTA_Y(mm)'].mean().round(3)}\t{qa_df['DELTA_Y(mm)'].std().round(3)}")
+    print(f'Delta > 2mm violations:')
+    print(f"X:\t{len(qa_df.loc[abs(qa_df['DELTA_X(mm)']) > 2.])}")
+    print(f"Y:\t{len(qa_df.loc[abs(qa_df['DELTA_Y(mm)']) > 2.])}")
+
+    sns.set(style='ticks', context='talk')
+    sns.histplot(data=qa_df['DELTA_X(mm)'], binwidth=0.05, label='$\Delta x$')
+    sns.histplot(data=qa_df['DELTA_Y(mm)'], binwidth=0.05, label='$\Delta y$')
+    plt.legend()
+    plt.xlabel('Spot position error [mm]')
+    plt.xlim(-3, 3)
+    plt.grid()
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/QA_histograms.png', dpi=300)
+    plt.yscale('log')
     plt.show()
 
 def central_spot(qa_df):
@@ -250,12 +310,14 @@ def missing_beams(qa_df):
                   
 
 if __name__ == '__main__':
-    qa_dataframe = pd.read_csv('QA_2017-2023_records_data_rotated.csv', dtype={'BEAM_ID':str, 'FRACTION_ID':int})
+    qa_dataframe = pd.read_csv('QA_2017-2023_records_data.csv', dtype={'BEAM_ID':str, 'FRACTION_ID':int})
     # qa_dataframe = qa_dataframe.loc[qa_dataframe['FRACTION_ID'] > 20220000]
     # print(qa_dataframe.FRACTION_ID.drop_duplicates())
     print('Read dataframe .. DONE')
     # plot_qa_beams(qa_dataframe)
     qa_dataframe = rotate(qa_dataframe)
     angle_plot(qa_dataframe)
+    # histograms(qa_dataframe)
+    # significance(qa_dataframe)
     # central_spot(qa_dataframe)
     # missing_beams(qa_dataframe)
