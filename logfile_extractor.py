@@ -24,6 +24,7 @@ import pydicom
 import pandas as pd
 import numpy as np
 import seaborn as sns
+from time import sleep
 from scipy import optimize
 from tkinter import Tk, filedialog
 from matplotlib import pyplot as plt
@@ -89,7 +90,7 @@ class MachineLog():
         
         # set dataframe storage directory, fallback alternative below
         # self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
-        self.df_destination = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\extracted'
+        self.df_destination = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\PSQA\extracted'
         # self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
         if not os.path.isdir(os.path.join(self.df_destination, '..')):            
             self.df_destination = r'/home/luke/Scripts/Logfile_Extraction/dataframes'
@@ -280,7 +281,14 @@ class MachineLog():
                             try:
                                 record_file_df = pd.read_csv(record_file, delimiter=',', skiprows=10, skipfooter=11, engine='python')
 
-                            except:  # log-file may not be read if interlock caused restart of logging in same file 
+                            except OSError:
+                                print(f'  /!\ OSError: Check that {record_file} path is valid')
+                                print(f'      File exists -> {os.path.exists(os.path.join(os.getcwd(), record_file))}')
+                                for s in range(5):
+                                    print(f'      Retrying in {4 - s}s ...', end='\r')
+                                    sleep(1)
+
+                            except pd.errors.ParserError:  # log-file may not be read if interlock caused restart of logging in same file 
                                 print('  /!\ Read CSV error:', record_file)
                                 print('      Cleaning record file..')
 
@@ -397,11 +405,15 @@ class MachineLog():
                             # draw machine parameters from *map_specif*.csv
                             for specif_file in record_specifs:  
                                 if int(specif_file.split('_')[2].split('_')[0]) == layer_id:
-                                    with open(specif_file, 'r') as specif_file:
-                                        lines = specif_file.readlines()
-                                        ic_offsets = lines[3]
-                                        ic_offset_x, ic_offset_y = float(ic_offsets.split(',')[3]), float(ic_offsets.split(',')[2])  # coordinate system switch x <--> y
-                                        range_at_degrader = float(lines[1].split(',')[1])  # beam range after energy selection system
+                                    try:
+                                        with open(specif_file, 'r') as specif_file:
+                                            lines = specif_file.readlines()
+                                            ic_offsets = lines[3]
+                                            ic_offset_x, ic_offset_y = float(ic_offsets.split(',')[3]), float(ic_offsets.split(',')[2])  # coordinate system switch x <--> y
+                                            range_at_degrader = float(lines[1].split(',')[1])  # beam range after energy selection system
+                                    except OSError:
+                                        print(f'  /!\ OSError: Check that {specif_file} path is valid')
+                                        print(f'      File exists -> {os.path.exists(os.path.join(os.getcwd(), specif_file))}')
                             
                             # calculate energy at isocenter from beam range
                             nozzle_wet = np.polyval(nozzle_wet_poly, range_at_degrader)  # [mm]
@@ -630,8 +642,8 @@ class MachineLog():
 
         # write out dataframe as .csv
         os.chdir(self.df_destination)
-        self.record_df_name = f'patient_{self.patient_id}_records_data.csv'
-        self.tuning_df_name = f'patient_{self.patient_id}_tuning_data.csv'
+        self.record_df_name = f'patient_{self.patient_id}_records_data_PSQA.csv'
+        self.tuning_df_name = f'patient_{self.patient_id}_tuning_data_PSQA.csv'
         
         print(f'''  ..Writing dataframe to '{self.df_destination}' as .CSV.. ''')
         while True:   
@@ -1239,13 +1251,13 @@ class MachineLog():
             spot_mu_delta = [spot_mu_sorted[i] - plan_mu[i] for i in range(len(spot_mu_sorted))]
             
             if beam_id == '1' and layer_id == 24:
-                sns.set(style='darkgrid', context='paper', font_scale=1.5)
+                sns.set(style='whitegrid', context='paper', font_scale=1.5)
                 fig2, ax2 = plt.subplots(figsize=(4, 4))
-                ax2.plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', label='Planned')
-                ax2.plot(*zip(*spot_points_sorted), marker='o', markerfacecolor='None', linestyle='-', color='black', label='Log file')
-                ax2.plot(*zip(*tuning_points_log), marker='o', linestyle='None', color='limegreen', alpha=0.8, label='Tuning spot(s)')
-                ax2.set_xlabel('$x$-position [mm]')
-                ax2.set_ylabel('$y$-position [mm]')
+                ax2.plot(plan_x_positions, plan_y_positions, marker='x', linestyle='-', ms=7, label='Planned')
+                ax2.plot(*zip(*spot_points_sorted), marker='o', markerfacecolor='None', linestyle='-', ms=7, color='black', label='Log file')
+                ax2.plot(*zip(*tuning_points_log), marker='o', linestyle='None', color='limegreen', alpha=0.8) #, label='Tuning spot(s)')
+                ax2.set_xlabel('$x$ [mm]')
+                ax2.set_ylabel('$y$ [mm]')
                 ax2.set_xlim(-100, -50)
                 ax2.set_ylim(45, 95)
                 ax2.legend(loc='upper left')
@@ -2784,7 +2796,7 @@ class MachineLog():
         print('             Y', df['DELTA_Y(mm)_STD'].mean(), '+-', df['DELTA_Y(mm)_STD'].std(), 'mm', 'MAX', df['DELTA_Y(mm)_STD'].max())
         print('             MU', df['DELTA_MU_STD'].mean(), '+-', df['DELTA_MU_STD'].std(), 'mm', 'MAX', abs(df['DELTA_MU_STD']).max())
 
-        sns.set(style='darkgrid', context='paper', font_scale=2.)
+        sns.set(style='whitegrid', context='paper', font_scale=2.)
         cm = 1 / 2.54
         figh, axh = plt.subplots(3, 2, figsize=(16, 12))
         axh = axh.flatten()
@@ -2818,11 +2830,11 @@ class MachineLog():
         target_cols = ['DELTA_X(mm)_MEAN', 'DELTA_X(mm)_STD', 'DELTA_Y(mm)_MEAN', 'DELTA_Y(mm)_STD']  #, ['DELTA_MU_MEAN', 'DELTA_MU_STD', 'MEDIAN_MU_STD']] #, ['DELTA_MU_MEAN', 'DELTA_MU_STD', 'MEDIAN_MU_STD']]
         legend = [[Patch(facecolor=cmap[0], edgecolor=ec, alpha=0.8, label=f'$x$-accuracy'), 
                   Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & median')],
-                  [Patch(facecolor=cmap[6], edgecolor=ec, alpha=0.8, label=f'$x$-precision'), 
+                  [Patch(facecolor=cmap[6], edgecolor=ec, alpha=0.8, label=f'$x$-reproducibility'), 
                   Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & median')],
                   [Patch(facecolor=cmap[1], edgecolor=ec, alpha=0.8, label=f'$y$-accuracy'), 
                   Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & median')],
-                  [Patch(facecolor=cmap[7], edgecolor=ec, alpha=0.8, label=f'$y$-precision'), 
+                  [Patch(facecolor=cmap[7], edgecolor=ec, alpha=0.8, label=f'$y$-reproducibility'), 
                   Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & median')]]
 
         for i, (ax, col) in enumerate(zip(axh[2:], target_cols)):
@@ -2831,6 +2843,8 @@ class MachineLog():
                     vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=col, color=cmap[0], ax=ax, width=10, scale='width', cut=0, order=np.arange(360))
                 else:
                     vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=col, color=cmap[6], ax=ax, width=10, scale='width', cut=0, order=np.arange(360))
+
+
             else:
                 if i % 2 == 0:
                     vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=col, color=cmap[1], ax=ax, width=10, scale='width', cut=0, order=np.arange(360))
@@ -2844,6 +2858,7 @@ class MachineLog():
 
             ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
             if i % 2 == 0:
+                ax.axhline(0., ls='--', c='black', zorder=0)
                 ax.set_ylim(-2.5, 2.5)
             else:
                 ax.set_ylim(0, .8)
@@ -2857,11 +2872,11 @@ class MachineLog():
         # axs[0].legend(handles=legend, loc='upper right')
         # axs[0].set_title('Treatment fields grouped by gantry position')
         # axs[0].set_ylim(0, .8)
-        axh[2].set_ylabel('$\mu_x$ [mm]')
-        axh[3].set_ylabel('$\sigma_x$ [mm]')
-        axh[4].set_ylabel('$\mu_y$ [mm]')
+        axh[2].set_ylabel('$\mu_{\Delta x}$ [mm]')
+        axh[3].set_ylabel('$\sigma_{\Delta x}$ [mm]')
+        axh[4].set_ylabel('$\mu_{\Delta y}$ [mm]')
         axh[4].set_xlabel('Gantry angle [°]')
-        axh[5].set_ylabel('$\sigma_y$ [mm]')
+        axh[5].set_ylabel('$\sigma_{\Delta y}$ [mm]')
         axh[5].set_xlabel('Gantry angle [°]')
         # axs[2].set_ylim(0, 0.005)
         # fig.suptitle(f'             Log-file Reproducibility', fontweight='bold')
@@ -2894,7 +2909,7 @@ class MachineLog():
             print(f'/x\ No single spot statistics data found for patient-ID {self.patient_id}, exiting..')
             return None
         
-        sns.set(style='darkgrid', context='paper', font_scale=1.5)
+        sns.set(style='darkgrid', context='talk', font_scale=1.2)
         ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
         bs_file = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\cct_entities.csv'
         bs_data = pd.read_csv(bs_file, delimiter=';')
@@ -3007,19 +3022,167 @@ class MachineLog():
             # fig2.suptitle(f'''PATIENT {self.patient_id} ({bs_dict['BODY_SITE'][int(self.patient_id)]})''', fontweight='bold')
             fig1.savefig(os.path.join(out, f'{self.patient_id}_beam_{beam_id}_split_paper.png'), dpi=600)  
             fig2.savefig(os.path.join(out, f'{self.patient_id}_beam_{beam_id}_sigma_paper.png'), dpi=600)   
+
+
+    def prepare_psqa(self) -> None:
+        treatment_records = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\extracted'
         
+        # get original treatment deltaframe
+        for csv in os.listdir(treatment_records):
+            if csv.__contains__(str(self.patient_id)) and csv.__contains__('delta') and csv.endswith('.csv'):
+                delta = pd.read_csv(os.path.join(treatment_records, csv), index_col='UNIQUE_INDEX', dtype={'FRACTION_ID':str, 'BEAM_ID':str})
+            if csv.__contains__(str(self.patient_id)) and csv.__contains__('records') and csv.endswith('.csv'):
+                records = pd.read_csv(os.path.join(treatment_records, csv), index_col='TIME', dtype={'FRACTION_ID':str, 'BEAM_ID':str})
+
+        df = pd.concat([records.reset_index(), delta.reset_index()], axis=1)
+        df = df.iloc[:,~df.columns.duplicated()]
+        df = df[['FRACTION_ID', 'BEAM_ID', 'GANTRY_ANGLE', 'LAYER_ID', 'SPOT_ID', 'X_POSITION(mm)', 'Y_POSITION(mm)', 'MU', 'DELTA_X(mm)', 'DELTA_Y(mm)', 'DELTA_MU']]
+        df['PLAN_X'] = df['X_POSITION(mm)'] - df['DELTA_X(mm)']   
+        df['PLAN_Y'] = df['Y_POSITION(mm)'] - df['DELTA_Y(mm)'] 
+        df.drop(columns=['DELTA_X(mm)', 'DELTA_Y(mm)'], inplace=True)
+
+        treated_beams = df.BEAM_ID.drop_duplicates()
+        qa_beams = self.patient_record_df.BEAM_ID.drop_duplicates()
+        beam_dict = {}
+        for tr_beam in treated_beams:
+            for qa_beam in qa_beams:
+                if (qa_beam.__contains__('WP') or qa_beam.__contains__('QA')) and qa_beam.__contains__(tr_beam):  # get any of the QA beams irradiated to WP
+                    beam_dict[tr_beam] = qa_beam
+
+        print(beam_dict)
+        psqa_df = pd.DataFrame()
+        for fx_no, fx_id in enumerate(df.FRACTION_ID.drop_duplicates()):
+            fx_df = df.loc[df.FRACTION_ID == fx_id]
+            for beam_id in fx_df.BEAM_ID.drop_duplicates():
+                print(f'Start fraction {fx_id} ({fx_no + 1}/{len(df.FRACTION_ID.drop_duplicates())}) .. Beam {beam_id}', end='\r')
+                try:
+                    last_qa_fx = self.patient_record_df.loc[self.patient_record_df.BEAM_ID == beam_dict[beam_id]].FRACTION_ID.drop_duplicates()[-1]
+                    beam_df_treat = fx_df.loc[fx_df.BEAM_ID == beam_id]
+                    beam_df_qa = self.patient_record_df.loc[(self.patient_record_df.BEAM_ID == beam_dict[beam_id]) & (self.patient_record_df.FRACTION_ID == last_qa_fx)]
+
+                except KeyError:
+                    print(f'  /!\ Beam {beam_id} not in records, will be skipped')
+                    continue
+                
+                # OLD STYLE
+                # iterations = 0
+                # while len(beam_df_qa) != len(beam_df_treat):
+                #     for i, (x_qa, x_tr) in enumerate(zip(beam_df_qa['X_POSITION(mm)'], beam_df_treat['X_POSITION(mm)'])):
+                #         if abs(x_qa - x_tr) > 3.:
+                #             if len(beam_df_qa) > len(beam_df_treat):
+                #                 beam_df_qa.drop(beam_df_qa.index[i], inplace=True)
+                #             else:
+                #                 beam_df_treat.drop(beam_df_treat.index[i], inplace=True)
+                            
+                #             break
+                    
+                #     iterations += 1
+                #     if iterations > 10:
+                #         break
+                # if len(beam_df_qa) == len(beam_df_treat):
+                #         temp = beam_df_treat.copy()
+                #         temp['X_PSQA'] = np.array(beam_df_qa['X_POSITION(mm)'])
+                #         temp['Y_PSQA'] = np.array(beam_df_qa['Y_POSITION(mm)'])
+                #         temp['MU_PSQA'] = np.array(beam_df_qa['MU'])
+                #         psqa_df = pd.concat([psqa_df, temp])
+                #     else:
+                #         continue
+
+                # NEW STYLE
+                for layer_id in beam_df_treat.LAYER_ID.drop_duplicates():
+                    layer_df_treat = beam_df_treat.loc[beam_df_treat.LAYER_ID == layer_id]
+                    layer_df_qa = self.patient_record_df.loc[(self.patient_record_df.BEAM_ID == beam_dict[beam_id]) & (self.patient_record_df.FRACTION_ID == last_qa_fx) & (self.patient_record_df.LAYER_ID == layer_id)]
+
+                    need_sorting = False
+                    if len(layer_df_qa) == len(layer_df_treat):
+                        max_x = max(abs(layer_df_qa['X_POSITION(mm)'] - np.array(layer_df_treat['X_POSITION(mm)'])))
+                        if max_x > 3.:
+                            need_sorting = True
+                    else:
+                        need_sorting = True
+
+                    layer_copy = layer_df_treat.copy()
+                    x_qa_sorted, y_qa_sorted = [], []
+                    if need_sorting:
+                        for i, (x_treat, y_treat) in enumerate(zip(layer_df_treat['X_POSITION(mm)'], layer_df_treat['Y_POSITION(mm)'])):
+                            found = False
+                            for j, (x_qa, y_qa) in enumerate(zip(layer_df_qa['X_POSITION(mm)'], layer_df_qa['Y_POSITION(mm)'])):
+                                dist = (x_treat - x_qa) ** 2 + (y_treat - y_qa) ** 2
+                                if dist < 9:  # < 3mm euclidean distance
+                                    x_qa_sorted.append(x_qa)
+                                    y_qa_sorted.append(y_qa)
+                                    found = True
+                                    break
+                            
+                            if not found:
+                                x_qa_sorted.append(np.nan)
+                                y_qa_sorted.append(np.nan)
+
+                        # plt.plot(layer_df_treat['X_POSITION(mm)'],layer_df_treat['Y_POSITION(mm)'], 'o-', label='Treat')
+                        # plt.plot(x_qa_sorted, y_qa_sorted, 'o-', label='QA')
+                        # plt.legend()
+                        # plt.show()
+                        layer_copy['X_PSQA'] = np.array(x_qa_sorted)
+                        layer_copy['Y_PSQA'] = np.array(y_qa_sorted)
+                    
+                    else:
+                        layer_copy['X_PSQA'] = np.array(layer_df_qa['X_POSITION(mm)'])
+                        layer_copy['Y_PSQA'] = np.array(layer_df_qa['Y_POSITION(mm)'])
+                        
+                    psqa_df = pd.concat([psqa_df, layer_copy])
+                
+            print(f'Start fraction {fx_id} ({fx_no + 1}/{len(df.FRACTION_ID.drop_duplicates())}) .. DONE            ', end='\n')
+                    
+
+        # psqa_df.dropna(axis=0, inplace=True)
+        psqa_df['DELTA_TO_QA_X'] = psqa_df['X_POSITION(mm)'] - psqa_df['X_PSQA']
+        psqa_df['DELTA_TO_QA_Y'] = psqa_df['Y_POSITION(mm)'] - psqa_df['Y_PSQA']
+
+        print(f'SUCCESS - Writing data to "patient_{self.patient_id}_diff_to_PSQA.csv"')
+        psqa_df.to_csv(os.path.join(self.df_destination, f'patient_{self.patient_id}_diff_to_PSQA.csv'))
+        
+        
+        # indices = psqa_df.loc[abs(psqa_df.DELTA_TO_QA_X) > 5].index
+        # already = []
+        # for i in indices:
+        #     fx, beam, layer = psqa_df.FRACTION_ID.loc[i], psqa_df.BEAM_ID.loc[i], psqa_df.LAYER_ID.loc[i]
+        #     if (beam, layer) in already: continue
+        #     layer_df = psqa_df.loc[(psqa_df.FRACTION_ID == fx) & (psqa_df.BEAM_ID == beam) & (psqa_df.LAYER_ID == layer)]
+        #     plt.plot(layer_df['X_POSITION(mm)'],layer_df['Y_POSITION(mm)'], 'o-', label='treat')
+        #     plt.plot(layer_df['X_PSQA'],layer_df['Y_PSQA'], 'o-', label='QA')
+        #     plt.legend()
+        #     print(layer_df.DELTA_TO_QA_X.max())
+        #     plt.show()
+        #     already.append((beam, layer))
+
+        # sns.set(style='whitegrid')
+        # sns.histplot(psqa_df['X_POSITION(mm)'] - psqa_df['X_PSQA'], label='x-position')
+        # sns.histplot(psqa_df['Y_POSITION(mm)'] - psqa_df['Y_PSQA'], label='y-position')
+        # plt.legend()
+        # plt.xlabel('Treat - QA log file diff [mm]')
+        # plt.ylabel('Count')
+        # plt.title(f'{self.patient_id} - Treatment vs. Water Phantom')
+        # plt.xlim(-3., 3.)
+        # # plt.yscale('log')
+        # plt.savefig(rf'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\Reports\{self.patient_id}_diff_to_QA.png')
+        # plt.clf()
+
+
 
 if __name__ == '__main__':
-    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\PSQA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
 
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
-    total_logfiles = 0
-    all_interlocks, all_beams = 0, 0
+    done = True
     for id in ponaqua_qualified:
-        if int(id) != 1700535: continue  # worst y-shift
+        # if id != "280735": 
+        #     if done: continue
+        # else:
+        #     done = False
+
         log = MachineLog(os.path.join(root_dir, id))
         # log.split_sigma()
         # log.prepare_deltaframe()
@@ -3032,13 +3195,14 @@ if __name__ == '__main__':
         # log.prepare_deltaframe()
         # log.prepare_sss_dataframe()
         # log.sss_histograms(mode='pos')
-        log.split_sigma()
+        # log.split_sigma()
         # log.plot_beam_layers()
         # log.sss_boxplot()
         # log.corrupted_maps()
         # interlock, total = log.beam_timings()
         # all_interlocks += interlock
         # all_beams += total
+        log.psqa_comparison()
     
     # print(all_interlocks, '/', all_beams, '(', all_interlocks / all_beams * 100, '%)')
         
