@@ -1269,7 +1269,7 @@ class MachineLog():
                 ax2.legend(loc='upper left')
                 ax2.grid(axis='both')
                 # ax2.text(0.05, 0.05, 'B', color='black', fontweight='bold', fontsize=24., transform=ax2.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
-                ax2.text(0.05, 0.05, 'B', color='black', fontweight='bold', fontsize=24., transform=ax2.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
+                # ax2.text(0.05, 0.05, 'B', color='black', fontweight='bold', fontsize=24., transform=ax2.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
 
                 
                 # ax2.grid()
@@ -1293,7 +1293,7 @@ class MachineLog():
                 ax2.legend(loc='upper left')
                 ax2.grid(axis='both')
                 # ax2.text(0.05, 0.05, 'B', color='black', fontweight='bold', fontsize=24., transform=ax2.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
-                ax2.text(0.05, 0.05, 'A', color='black', fontweight='bold', fontsize=24., transform=ax2.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
+                # ax2.text(0.05, 0.05, 'A', color='black', fontweight='bold', fontsize=24., transform=ax2.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
 
                 
                 # ax2.grid()
@@ -3316,11 +3316,12 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\PSQA\converted'
+    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\PSQA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
+    root_dir = r'N:\fs4-HPRT\HPRT-Docs\Yazeed\TestData\Logfiles\LogfilesConverted'
     # log.prepare_dataframe()
     # log.sss_boxplot()
 
@@ -3329,7 +3330,8 @@ if __name__ == '__main__':
         if id != '1700535': continue
         log = MachineLog(os.path.join(root_dir, id))
         # log.split_sigma()
-        # log.prepare_deltaframe()
+        log.prepare_deltaframe()
+        log.plan_creator(fraction='all', mode='all')
         # yshift = log.patient_delta_df['DELTA_Y(mm)']
         # miny, maxy = yshift.min(), yshift.max()
         # print(id, miny, maxy)
@@ -3339,7 +3341,7 @@ if __name__ == '__main__':
         # log.prepare_deltaframe()
         # log.prepare_sss_dataframe()
         # log.sss_histograms(mode='pos')
-        log.split_sigma()
+        # log.split_sigma()
         # log.plot_beam_layers()
         # log.sss_boxplot()
         # log.corrupted_maps()
