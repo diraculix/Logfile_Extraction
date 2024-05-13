@@ -2805,6 +2805,15 @@ class MachineLog():
         
         df, n_fields = pd.concat(patient_dfs), 0
         df.reset_index(inplace=True)
+        # over_twomm = df.loc[df['DIST(mm)_MEAN'] > 2.0]
+        # print(len(df.loc[df['DIST(mm)_MEAN'] > 2.0]), len(df), len(df.loc[df['DIST(mm)_MEAN'] > 2.0])/len(df) * 100)
+        # for layer_id in over_twomm.LAYER_ID.drop_duplicates():
+        #     plot_df = over_twomm.loc[over_twomm.LAYER_ID == layer_id]
+        #     previous_fx = df.loc[(df.PATIENT_ID == plot_df.PATIENT_ID.iloc[0]) & (df.FRACTION_ID.astype(int) == plot_df.FRACTION_ID.iloc[0] - 1) & (df.BEAM_ID == plot_df.BEAM_ID.iloc[0]) & (df.LAYER_ID == plot_df.LAYER_ID.iloc[0])]
+        #     plt.plot(previous_fx['X_POSITION(mm)'], previous_fx['Y_POSITION(mm)'], 'x-')
+        #     plt.plot(plot_df['X_POSITION(mm)'], plot_df['Y_POSITION(mm)'], 'o-')
+        #     plt.show()
+        # return None
         # print(len(df.GANTRY_ANGLE.dropna().drop_duplicates()), df.GANTRY_ANGLE.dropna().drop_duplicates())
         for id in df.PATIENT_ID.drop_duplicates():
             n_fields += len(df.loc[df.PATIENT_ID == id, 'BEAM_ID'].drop_duplicates())
@@ -3317,21 +3326,21 @@ class MachineLog():
 
 if __name__ == '__main__':
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\PSQA\converted'
-    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
+    root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
-    root_dir = r'N:\fs4-HPRT\HPRT-Docs\Yazeed\TestData\Logfiles\LogfilesConverted'
+    # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Yazeed\TestData\Logfiles\LogfilesConverted'
     # log.prepare_dataframe()
     # log.sss_boxplot()
 
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
     for id in ponaqua_qualified:
-        if id != '1700535': continue
+        if id != '1635796': continue
         log = MachineLog(os.path.join(root_dir, id))
         # log.split_sigma()
-        log.prepare_deltaframe()
-        log.plan_creator(fraction='all', mode='all')
+        # log.prepare_deltaframe()
+        # log.plan_creator(fraction='all', mode='all')
         # yshift = log.patient_delta_df['DELTA_Y(mm)']
         # miny, maxy = yshift.min(), yshift.max()
         # print(id, miny, maxy)
@@ -3343,7 +3352,7 @@ if __name__ == '__main__':
         # log.sss_histograms(mode='pos')
         # log.split_sigma()
         # log.plot_beam_layers()
-        # log.sss_boxplot()
+        log.sss_boxplot()
         # log.corrupted_maps()
         # log.prepare_psqa()
         # log.eval_psqa()    
