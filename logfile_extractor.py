@@ -1,4 +1,4 @@
-﻿'''
+'''
 Author:     Lukas C. Wolter, OncoRay ZIK, Dresden, Germany
 Project:    Logfile-based patient-specific quality assurance
 Encoding:   UTF-8
@@ -1918,6 +1918,13 @@ class MachineLog():
         beam_list = self.patient_record_df['BEAM_ID'].drop_duplicates()
         indices = beam_list.index.to_list()
 
+        # get body site of patient
+        bs_file = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\cct_entities.csv'
+        bs_data = pd.read_csv(bs_file, sep=';', index_col='PATIENT_ID')
+        bs_dict = bs_data.to_dict()
+        print('_______')
+        print(self.patient_id, bs_dict['BODY_SITE'][int(self.patient_id)])
+
         print('\nSelect beam key for beam timing plot:\n')
         print('Key\tBeam-ID\t\tGantry Angle\tLayers\tFrom Fraction\n')  # choose beam
         for choice, (index, beam) in enumerate(zip(indices, beam_list)):
@@ -1942,12 +1949,12 @@ class MachineLog():
                 print('Invalid input, try again..')
 
         beam_ids = [str(beam_list[k - 1]) for k in key]
-        total_beams, flawed = 0, 0
         print(beam_ids)
 
         cmap = sns.color_palette('inferno_r', 6)
         sns.set(context='paper', style='ticks', font_scale=1.5)
         sns.set_style({"xtick.direction": "in","ytick.direction": "in", "axes.axisbelow":"line"})
+        global_plan_delivery_times = [0 for fx in self.fraction_list]
         for beam_id in beam_ids:
             fig, axs = plt.subplots(4, 1, sharex=True, figsize=(8, 8), gridspec_kw={'height_ratios': [3, 1, 1, 1]})
             # fig.subplots_adjust(hspace=0.0, wspace=0.0)
@@ -1965,11 +1972,11 @@ class MachineLog():
             print('\nGenerating beam timing plot..')
             global_drills, global_spot_switches, global_energy_switches, global_interlocks, totals = [], [], [], [], []
             for x, fx_id in enumerate(x_axis):  # remember type(fx_id) = <str>
-                total_beams += 1
+                if self.patient_id == '1180747' and x == 20: continue
+                if self.patient_id == '1635796' and x == 10: continue
                 beam_df = self.patient_record_df.loc[(self.patient_record_df['BEAM_ID'] == beam_id) & (self.patient_record_df['FRACTION_ID'] == fx_id)]
                 beam_tuning_df = self.patient_tuning_df.loc[(self.patient_tuning_df['BEAM_ID'] == beam_id) & (self.patient_tuning_df['FRACTION_ID'] == fx_id)]
                 if beam_df.empty or beam_tuning_df.empty:
-                    print('empty')
                     continue
 
                 total_drill_time = (beam_df['DRILL_TIME(ms)'].sum() + beam_tuning_df['DRILL_TIME(ms)'].sum()) / 1000
@@ -1978,19 +1985,19 @@ class MachineLog():
                 layer_tuning_dfs = [beam_tuning_df.loc[beam_tuning_df['LAYER_ID'] == lid] for lid in beam_tuning_df['LAYER_ID'].drop_duplicates()]
                 for layer_id, layer_df in enumerate(layer_dfs):
                     if layer_df.empty:
-                        layer_df = layer_tuning_dfs[layer_id]  # all layer spots covered during tuning
+                        layer_df = layer_tuning_dfs[layer_id]  # all layer spots covered by tuning
 
-                    start_irr = pd.to_datetime(layer_df.first_valid_index())
-                    start_tun = pd.to_datetime(layer_tuning_dfs[layer_id].first_valid_index())
-                    end_irr = pd.to_datetime(layer_df.last_valid_index())
+                    start_irr = pd.to_datetime(layer_df.first_valid_index(), format='%Y-%m-%d %H:%M:%S.%f')
+                    start_tun = pd.to_datetime(layer_tuning_dfs[layer_id].first_valid_index(), format='%Y-%m-%d %H:%M:%S.%f')
+                    end_irr = pd.to_datetime(layer_df.last_valid_index(), format='%Y-%m-%d %H:%M:%S.%f')
                     layer_time = end_irr - start_irr
                     total_layer_time += layer_time.total_seconds()
                     
                     if layer_id > 0:
                         if layer_dfs[layer_id - 1].empty:
-                            end_prev = pd.to_datetime(layer_tuning_dfs[layer_id - 1].last_valid_index())
+                            end_prev = pd.to_datetime(layer_tuning_dfs[layer_id - 1].last_valid_index(), format='%Y-%m-%d %H:%M:%S.%f')
                         else:
-                            end_prev = pd.to_datetime(layer_dfs[layer_id - 1].last_valid_index())
+                            end_prev = pd.to_datetime(layer_dfs[layer_id - 1].last_valid_index(), format='%Y-%m-%d %H:%M:%S.%f')
 
                         energy_switch = start_tun - end_prev
                         total_energy_switch += energy_switch.total_seconds()
@@ -2005,43 +2012,52 @@ class MachineLog():
                         for i, line in enumerate(events):
                             if line.__contains__('RESUME_REQUESTED'):
                                 print(f'  /!\ Interlock detected in fraction {x + 1} ({fx_id})')
-                                resume_time = pd.to_datetime(line.split(',')[0])
-                                stop_time = pd.to_datetime(events[i - 1].split(',')[0])
+                                resume_time = pd.to_datetime(line.split(',')[0], format='%d/%m/%Y %H:%M:%S.%f')
+                                stop_time = pd.to_datetime(events[i - 1].split(',')[0], format='%d/%m/%Y %H:%M:%S.%f')
                                 has_interlock = True
                                 if has_pause:
-                                    total_interlock += (resume_time - pause_time).total_seconds()
+                                    interlock_time = (resume_time - pause_time).total_seconds()
+                                    total_interlock += interlock_time
                                 else:
+                                    interlock_time = (resume_time - stop_time).total_seconds()
                                     total_interlock += (resume_time - stop_time).total_seconds()
                                 has_pause = False
 
                             elif line.__contains__('PAUSE_REQUESTED'):
-                                pause_time = pd.to_datetime(events[i - 1].split(',')[0])
+                                print(f'  /!\ Interlock detected in fraction {x + 1} ({fx_id})')
+                                pause_time = pd.to_datetime(events[i - 1].split(',')[0], format='%d/%m/%Y %H:%M:%S.%f')
                                 has_pause = True
-                
-                if has_interlock:
-                    if total_spot_switch > np.median(global_spot_switches) + 2:
-                        print('      (Spot switch)')
-                        total_spot_switch -= total_interlock
-                    if total_energy_switch > np.median(global_energy_switches) + 3:
-                        print('      (Energy switch)')
-                        total_energy_switch -= total_interlock
-                    
-                    flawed += 1
+                            
+                            if has_interlock and line.__contains__('Layer'):
+                                interlock_layer_id = int(line.split('Layer ')[-1].split(':')[0])
+                                # assert interlock_layer_id is int
+                                interlock_layer_df = beam_df.loc[beam_df.LAYER_ID == interlock_layer_id]
+                                time_diff = interlock_layer_df.index.to_series().diff().dropna()  # Calculate the time difference between consecutive rows
 
+                                # Check if any time differences are greater than 1 second
+                                if (time_diff > pd.Timedelta(seconds=1)).any():  # Interlock during spot switch
+                                    total_spot_switch -= interlock_time
+                                else:  # Interlock during energy switch
+                                    total_energy_switch -= interlock_time
+                                
+                                has_interlock = False
+                                   
                 global_drills.append(total_drill_time), global_spot_switches.append(total_spot_switch), global_energy_switches.append(total_energy_switch), global_interlocks.append(total_interlock)
                 totals.append(total_drill_time + total_spot_switch + total_energy_switch)
+                global_plan_delivery_times[x] += (total_drill_time + total_spot_switch + total_energy_switch)
             
+
             global_drills = np.array(global_drills)
             global_spot_switches = np.array(global_spot_switches)
             global_energy_switches = np.array(global_energy_switches)
             global_interlocks = np.array(global_interlocks)
 
-            print(f'\n\t\tMean\tMin\tMax\tSigma')
-            print(f'Drill\t\t{np.mean(global_drills):.3f}\t{min(global_drills):.3f}\t{max(global_drills):.3f}\t{np.std(global_drills):.3f}')
-            print(f'Spot switch\t{np.mean(global_spot_switches):.3f}\t{min(global_spot_switches):.3f}\t{max(global_spot_switches):.3f}\t{np.std(global_spot_switches):.3f}')
-            print(f'Energy switch\t{np.mean(global_energy_switches):.3f}\t{min(global_energy_switches):.3f}\t{max(global_energy_switches):.3f}\t{np.std(global_energy_switches):.3f}')
-            print('_____________________________________________________')
-            print(f'Total beamtime\t{np.mean(totals):.3f}\t{min(totals):.3f}\t{max(totals):.3f}\t{np.std(totals):.3f}\n')
+            # print(f'\n\t\tMean\tMin\tMax\tSigma')
+            # print(f'Drill\t\t{np.mean(global_drills):.3f}\t{min(global_drills):.3f}\t{max(global_drills):.3f}\t{np.std(global_drills):.3f}')
+            # print(f'Spot switch\t{np.mean(global_spot_switches):.3f}\t{min(global_spot_switches):.3f}\t{max(global_spot_switches):.3f}\t{np.std(global_spot_switches):.3f}')
+            # print(f'Energy switch\t{np.mean(global_energy_switches):.3f}\t{min(global_energy_switches):.3f}\t{max(global_energy_switches):.3f}\t{np.std(global_energy_switches):.3f}')
+            # print(f'Total beamtime\t{np.mean(totals):.3f}\t{min(totals):.3f}\t{max(totals):.3f}\t{np.std(totals):.3f}\n')
+            print(f'Mean field delivery time:\t{round(np.mean(totals), 2)} ({round(np.std(totals), 2)})\n')
 
             ec = 'none'
             axs[0].bar(range(1, len(global_drills) + 1), global_drills, label='Spot drill time', color=cmap[0], edgecolor=ec, zorder=0)
@@ -2056,24 +2072,27 @@ class MachineLog():
             axs[1].plot(range(1, len(global_energy_switches) + 1), global_energy_switches, marker='o', color='black', markerfacecolor=cmap[2], label='Energy switching time')  
             axs[1].axhline(np.mean(global_energy_switches), ls='--', color='black', lw=1.0, zorder=-1, label='Mean')
 
-            axs[1].set_ylim(29, 33)
-            axs[1].set_yticks([29, 31, 33])
-            axs[2].set_ylim(4.46, 4.50)
-            axs[2].set_yticks([4.46, 4.48, 4.5])
-            axs[3].set_ylim(6.2, 7.4)
+            # axs[1].set_ylim(30, 37.5)
+            # axs[1].set_yticks([29, 31, 33])
+            # axs[2].set_ylim(0, 100)
+            # axs[2].set_yticks([4.46, 4.48, 4.5])
+            # axs[3].set_ylim(18.75, 20.)
             # axs[3].set_yticks([6.2, 6.7, 7.2])
 
             for i, ax in enumerate(axs):
                 if i == 0:
-                    ax.legend(loc='upper left')
+                    ax.legend(loc='upper right')
                     ax.grid(axis='y')
                 else:
-                    ax.legend(loc='upper left', ncol=2)
+                    ax.legend(loc='upper right', ncol=2)
                 ax.set_axisbelow(True)
                 # ax.grid(axis='both')        
             plt.tight_layout()
             plt.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_beamtime.png', dpi=300)        
             # plt.show()
+        # global_plan_delivery_times = [t for t in global_plan_delivery_times if t != 0]
+        # print('_____________________________________________________')
+        # print(f'Total beamtime\t{round(np.mean(global_plan_delivery_times), 2)} ({round(np.std(global_plan_delivery_times), 2)})\n')
 
 
     def plan_creator(self, fraction, mode):
