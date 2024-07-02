@@ -1,4 +1,4 @@
-'''
+﻿'''
 Author:     Lukas C. Wolter, OncoRay ZIK, Dresden, Germany
 Project:    Logfile-based patient-specific quality assurance
 Encoding:   UTF-8
@@ -91,6 +91,7 @@ class MachineLog():
         # set dataframe storage directory, fallback alternative below
         # self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
         self.df_destination = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\extracted'
+        # self.df_destination = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\04_MA_PSQA_2024\Logfiles\LogfilesExtracted'
         # self.df_destination = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\dataframes'
         if not os.path.isdir(os.path.join(self.df_destination, '..')):            
             self.df_destination = r'/home/luke/Scripts/Logfile_Extraction/dataframes'
@@ -149,12 +150,12 @@ class MachineLog():
             if fname.__contains__(f'{self.patient_id}_records') and fname.endswith('.csv'):
                 self.record_df_name = fname
                 print(f'''Found patient record dataframe '{self.record_df_name}', reading in..''')
-                self.patient_record_df = pd.read_csv(os.path.join(self.df_destination, fname), index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+                self.patient_record_df = pd.read_csv(os.path.join(self.df_destination, fname), parse_dates=['TIME'], index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
                 record_df_exists = True
             elif fname.__contains__(f'{self.patient_id}_tuning') and fname.endswith('.csv'):
                 self.tuning_df_name = fname
                 print(f'''Found patient tuning dataframe '{self.tuning_df_name}', reading in..''')
-                self.patient_tuning_df = pd.read_csv(os.path.join(self.df_destination, fname), index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
+                self.patient_tuning_df = pd.read_csv(os.path.join(self.df_destination, fname), parse_dates=['TIME'], index_col='TIME', dtype={'BEAM_ID':str, 'FRACTION_ID':str})
                 tuning_df_exists = True
             
             if record_df_exists and tuning_df_exists: break
@@ -956,7 +957,7 @@ class MachineLog():
         if verbose: print(f'Looking for beam-ID {beam_id} with GTR{gtr_angle}, n_layers = {n_layers}, E = [{np.round(min(log_energies), 1)} .. {np.round(max(log_energies), 1)}]')
 
         # auto-location of plan DICOM    
-        delivered = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\DeliveredPlans'
+        delivered = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\04_MA_PSQA_2024\DeliveredPlans'
         plan_dir = os.path.join(delivered, self.patient_id)
         if not os.path.isdir(delivered):
             plan_dir = r'/home/luke/Scripts/Logfile_Extraction/1676348/DeliveredPlans'        
@@ -1268,10 +1269,7 @@ class MachineLog():
                 ax2.set_ylim(-30, 20)
                 ax2.legend(loc='upper left')
                 ax2.grid(axis='both')
-                # ax2.text(0.05, 0.05, 'B', color='black', fontweight='bold', fontsize=24., transform=ax2.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
-                # ax2.text(0.05, 0.05, 'B', color='black', fontweight='bold', fontsize=24., transform=ax2.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
-
-                
+                ax2.text(0.05, 0.05, 'B', color='black', fontweight='bold', fontsize=24., transform=ax2.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
                 # ax2.grid()
 
                 fig2.tight_layout()
@@ -1293,7 +1291,7 @@ class MachineLog():
                 ax2.legend(loc='upper left')
                 ax2.grid(axis='both')
                 # ax2.text(0.05, 0.05, 'B', color='black', fontweight='bold', fontsize=24., transform=ax2.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
-                # ax2.text(0.05, 0.05, 'A', color='black', fontweight='bold', fontsize=24., transform=ax2.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
+                ax2.text(0.05, 0.05, 'A', color='black', fontweight='bold', fontsize=24., transform=ax2.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
 
                 
                 # ax2.grid()
@@ -2134,7 +2132,7 @@ class MachineLog():
                     if layer_df.empty: print(f'  /!\ Layer-ID {layer_id} has no record, probably one-spot layer')
                     tuning_df = target_tuning.loc[(target_tuning['BEAM_ID'] == beam_id) & (target_tuning['LAYER_ID'] == layer_id)]
                     layer_xy, layer_mu, tuning_xy, tuning_mu = [], [], [], []
-                    layer_energy = tuning_df['LAYER_ENERGY(MeV)'].drop_duplicates().iloc[0]
+                    # layer_energy = tuning_df['LAYER_ENERGY(MeV)'].drop_duplicates().iloc[0]
                     plan_xy = plan_beam.IonControlPointSequence[layer_id * 2].ScanSpotPositionMap
 
                     # generate spot position list equal to DICOM tag --> [x1, y1, x2, y2, ..]
@@ -2337,7 +2335,7 @@ class MachineLog():
                             else:
                                 ref_df_copy = ref_df_copy.loc[:ref_df_copy.index[len(fx_df) - 1]]
 
-                    date = pd.to_datetime(fx_df.index[0]).date()
+                    date = pd.to_datetime(fx_df.index[0], dayfirst=False).date()
                     dx = fx_df['X_POSITION(mm)'].to_numpy() - ref_df_copy['X_POSITION(mm)'].to_numpy()
                     dy = fx_df['Y_POSITION(mm)'].to_numpy() - ref_df_copy['Y_POSITION(mm)'].to_numpy()
                     shift_vectors = [np.array(tup) for tup in zip(dx, dy)]
@@ -2854,23 +2852,24 @@ class MachineLog():
 
             worst.append(np.round(pdf['DIST(mm)_MEAN'].max(), 1))
             spots += len(pdf)
-            # print('\tGenauigkeit X: ', pdf['DELTA_X(mm)_MEAN'].mean(), '+-', pdf['DELTA_X(mm)_MEAN'].std(), 'mm', 'MAX', pdf.loc[abs(pdf['DELTA_X(mm)_MEAN']).idxmax(), 'DELTA_X(mm)_MEAN'])
-            # print('\tGenauigkeit Y: ', pdf['DELTA_Y(mm)_MEAN'].mean(), '+-', pdf['DELTA_Y(mm)_MEAN'].std(), 'mm', 'MAX', pdf.loc[abs(pdf['DELTA_Y(mm)_MEAN']).idxmax(), 'DELTA_Y(mm)_MEAN'])
-            # print('\tGenauigkeit MU:', pdf['DELTA_MU_MEAN'].mean(), '+-', pdf['DELTA_MU_MEAN'].std(), 'mm', 'MAX', pdf.loc[abs(pdf['DELTA_MU_MEAN']).idxmax(), 'DELTA_MU_MEAN'])
-            # print('\tReproduzier X: ', pdf['DELTA_X(mm)_STD'].mean(), '+-', pdf['DELTA_X(mm)_STD'].std(), 'mm', 'MAX', pdf.loc[abs(pdf['DELTA_X(mm)_STD']).idxmax(), 'DELTA_X(mm)_STD'])
-            # print('\tReproduzier Y: ', pdf['DELTA_Y(mm)_STD'].mean(), '+-', pdf['DELTA_Y(mm)_STD'].std(), 'mm', 'MAX', pdf.loc[abs(pdf['DELTA_Y(mm)_STD']).idxmax(), 'DELTA_Y(mm)_STD'])
-            # print('\tReproduzier MU:', pdf['DELTA_MU_STD'].mean(), '+-', pdf['DELTA_MU_STD'].std(), 'mm', 'MAX', pdf.loc[abs(pdf['DELTA_MU_STD']).idxmax(), 'DELTA_MU_STD'])
+            print('\tGenauigkeit X: ', pdf['DELTA_X(mm)_MEAN'].mean(), '+-', pdf['DELTA_X(mm)_MEAN'].std(), 'mm', 'MAX', pdf.loc[abs(pdf['DELTA_X(mm)_MEAN']).idxmax(), 'DELTA_X(mm)_MEAN'])
+            print('\tGenauigkeit Y: ', pdf['DELTA_Y(mm)_MEAN'].mean(), '+-', pdf['DELTA_Y(mm)_MEAN'].std(), 'mm', 'MAX', pdf.loc[abs(pdf['DELTA_Y(mm)_MEAN']).idxmax(), 'DELTA_Y(mm)_MEAN'])
+            print('\tGenauigkeit MU:', pdf['DELTA_MU_MEAN'].mean(), '+-', pdf['DELTA_MU_MEAN'].std(), 'mm', 'MAX', pdf.loc[abs(pdf['DELTA_MU_MEAN']).idxmax(), 'DELTA_MU_MEAN'])
+            print('\tReproduzier X: ', pdf['DELTA_X(mm)_STD'].mean(), '+-', pdf['DELTA_X(mm)_STD'].std(), 'mm', 'MAX', pdf.loc[abs(pdf['DELTA_X(mm)_STD']).idxmax(), 'DELTA_X(mm)_STD'])
+            print('\tReproduzier Y: ', pdf['DELTA_Y(mm)_STD'].mean(), '+-', pdf['DELTA_Y(mm)_STD'].std(), 'mm', 'MAX', pdf.loc[abs(pdf['DELTA_Y(mm)_STD']).idxmax(), 'DELTA_Y(mm)_STD'])
+            print('\tReproduzier MU:', pdf['DELTA_MU_STD'].mean(), '+-', pdf['DELTA_MU_STD'].std(), 'mm', 'MAX', pdf.loc[abs(pdf['DELTA_MU_STD']).idxmax(), 'DELTA_MU_STD'])
         
-        # print('ALL:', spots, 'spots')
-        # print('Genauigkeit: X', df['DELTA_X(mm)_MEAN'].mean(), '+-', df['DELTA_X(mm)_MEAN'].std(), 'mm', 'MAX', df.loc[abs(df['DELTA_X(mm)_MEAN']).idxmax(), 'DELTA_X(mm)_MEAN'])
-        # print('             Y', df['DELTA_Y(mm)_MEAN'].mean(), '+-', df['DELTA_Y(mm)_MEAN'].std(), 'mm', 'MAX', df.loc[abs(df['DELTA_Y(mm)_MEAN']).idxmax(), 'DELTA_Y(mm)_MEAN'])
-        # print('             MU', df['DELTA_MU_MEAN'].mean(), '+-', df['DELTA_MU_MEAN'].std(), 'mm', 'MAX', df.loc[abs(df['DELTA_MU_MEAN']).idxmax(), 'DELTA_MU_MEAN'])
-        # print('Reproduzier: X', df['DELTA_X(mm)_STD'].mean(), '+-', df['DELTA_X(mm)_STD'].std(), 'mm', 'MAX', df.loc[abs(df['DELTA_X(mm)_STD']).idxmax(), 'DELTA_X(mm)_STD'])
-        # print('             Y', df['DELTA_Y(mm)_STD'].mean(), '+-', df['DELTA_Y(mm)_STD'].std(), 'mm', 'MAX', df.loc[abs(df['DELTA_Y(mm)_STD']).idxmax(), 'DELTA_Y(mm)_STD'])
-        # print('             MU', df['DELTA_MU_STD'].mean(), '+-', df['DELTA_MU_STD'].std(), 'mm', 'MAX', df.loc[abs(df['DELTA_MU_STD']).idxmax(), 'DELTA_MU_STD'])
+        print('ALL:', spots, 'spots')
+        print('Genauigkeit: X', df['DELTA_X(mm)_MEAN'].mean(), '+-', df['DELTA_X(mm)_MEAN'].std(), 'mm', 'MAX', df.loc[abs(df['DELTA_X(mm)_MEAN']).idxmax(), 'DELTA_X(mm)_MEAN'])
+        print('             Y', df['DELTA_Y(mm)_MEAN'].mean(), '+-', df['DELTA_Y(mm)_MEAN'].std(), 'mm', 'MAX', df.loc[abs(df['DELTA_Y(mm)_MEAN']).idxmax(), 'DELTA_Y(mm)_MEAN'])
+        print('             MU', df['DELTA_MU_MEAN'].mean(), '+-', df['DELTA_MU_MEAN'].std(), 'mm', 'MAX', df.loc[abs(df['DELTA_MU_MEAN']).idxmax(), 'DELTA_MU_MEAN'])
+        print('Reproduzier: X', df['DELTA_X(mm)_STD'].mean(), '+-', df['DELTA_X(mm)_STD'].std(), 'mm', 'MAX', df.loc[abs(df['DELTA_X(mm)_STD']).idxmax(), 'DELTA_X(mm)_STD'])
+        print('             Y', df['DELTA_Y(mm)_STD'].mean(), '+-', df['DELTA_Y(mm)_STD'].std(), 'mm', 'MAX', df.loc[abs(df['DELTA_Y(mm)_STD']).idxmax(), 'DELTA_Y(mm)_STD'])
+        print('             MU', df['DELTA_MU_STD'].mean(), '+-', df['DELTA_MU_STD'].std(), 'mm', 'MAX', df.loc[abs(df['DELTA_MU_STD']).idxmax(), 'DELTA_MU_STD'])
 
         sns.set(style='ticks', context='paper', font_scale=2.)
         sns.set_style({"xtick.direction": "in","ytick.direction": "in", "ax.axesbelow":True})
+
         # plt.rcParams.update({'font.size': 10})
         cm = 1 / 2.54
         figh, axh = plt.subplots(3, 2, figsize=(16, 12), constrained_layout=True)
@@ -3137,7 +3136,7 @@ class MachineLog():
             if csv.__contains__(str(self.patient_id)) and csv.__contains__('delta') and csv.endswith('.csv'):
                 delta = pd.read_csv(os.path.join(treatment_records, csv), index_col='UNIQUE_INDEX', dtype={'FRACTION_ID':str, 'BEAM_ID':str})
             if csv.__contains__(str(self.patient_id)) and csv.__contains__('records') and csv.endswith('.csv'):
-                records = pd.read_csv(os.path.join(treatment_records, csv), index_col='TIME', dtype={'FRACTION_ID':str, 'BEAM_ID':str})
+                records = pd.read_csv(os.path.join(treatment_records, csv), index_col='TIME', parse_dates=['TIME'], dtype={'FRACTION_ID':str, 'BEAM_ID':str})
 
         df = pd.concat([records.reset_index(), delta.reset_index()], axis=1)
         df = df.iloc[:,~df.columns.duplicated()]
@@ -3344,6 +3343,7 @@ class MachineLog():
 
 
 if __name__ == '__main__':
+    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\04_MA_PSQA_2024\Logfiles\LogfilesConverted\1783893'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\PSQA\converted'
     root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
@@ -3353,8 +3353,14 @@ if __name__ == '__main__':
     # log.prepare_dataframe()
     # log.sss_boxplot()
 
+    # log = MachineLog(root_dir)
+    # log.plan_creator(mode='all', fraction='all')
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
+    # checkpoint = '1180747'
+    # checkpoint_reached = False
     for id in ponaqua_qualified:
+    #     if id == checkpoint: checkpoint_reached = True
+    #     if not checkpoint_reached: continue
         if id != '1635796': continue
         log = MachineLog(os.path.join(root_dir, id))
         # log.split_sigma()
@@ -3364,14 +3370,14 @@ if __name__ == '__main__':
         # miny, maxy = yshift.min(), yshift.max()
         # print(id, miny, maxy)
         # print(log.patient_delta_df.loc[log.patient_delta_df['DELTA_Y(mm)'].idxmin()], log.patient_delta_df.loc[log.patient_delta_df['DELTA_Y(mm)'].idxmax()])
-        # log.beam_timings()
+        log.beam_timings()
         # log.prepare_dataframe()
         # log.prepare_deltaframe()
         # log.prepare_sss_dataframe()
         # log.sss_histograms(mode='pos')
         # log.split_sigma()
         # log.plot_beam_layers()
-        log.sss_boxplot()
+        # log.sss_boxplot()
         # log.corrupted_maps()
         # log.prepare_psqa()
         # log.eval_psqa()    
