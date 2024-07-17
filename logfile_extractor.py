@@ -2003,42 +2003,53 @@ class MachineLog():
                 total_spot_switch = total_layer_time - total_drill_time
                 
                 fx_dir = os.path.join(logfile_root, self.patient_id, fx_id, beam_id)
-                has_interlock, has_pause, total_interlock = False, False, 0.0
+                has_interlock, total_interlock = False, 0.0
                 for file in os.listdir(fx_dir):
                     if file.__contains__('events') and file.endswith('.csv'):
                         events = open(os.path.join(fx_dir, file)).readlines()
                         for i, line in enumerate(events):
-                            if line.__contains__('RESUME_REQUESTED'):
+                            if line.__contains__('Layer'):
+                                layer_id = int(line.split('Layer ')[-1].split(':')[0])
+                            if (line.__contains__('RESUME_REQUESTED') or line.__contains__('PAUSE_REQUESTED')) and not has_interlock:  # dont count resume statements where nothing happened in between
                                 print(f'  /!\ Interlock detected in fraction {x + 1} ({fx_id})')
-                                resume_time = pd.to_datetime(line.split(',')[0], format='%d/%m/%Y %H:%M:%S.%f')
                                 stop_time = pd.to_datetime(events[i - 1].split(',')[0], format='%d/%m/%Y %H:%M:%S.%f')
                                 has_interlock = True
-                                if has_pause:
-                                    interlock_time = (resume_time - pause_time).total_seconds()
+
+                            if has_interlock:
+                                if line.__contains__('START_MAP_IRRADIATION'):
+                                    resume_time = pd.to_datetime(line.split(',')[0], format='%d/%m/%Y %H:%M:%S.%f')
+                                    interlock_layer_df = beam_df.loc[beam_df.LAYER_ID == layer_id]
+                                    time_index = interlock_layer_df.index.to_series()
+                                    time_diff = interlock_layer_df.index.to_series().diff()  # Calculate the time difference between consecutive rows
+                                    time_df = pd.DataFrame({'t':time_index.to_list(), 'dt':time_diff.to_list()})
+                                    time_df['post_stop'] = time_df.t > stop_time
+                                    time_df = time_df.loc[time_df.post_stop == True]
+
+                                    # Check if any time differences are greater than 1 second
+                                    if (time_diff > pd.Timedelta(seconds=1)).any():  # Interlock during spot switch
+                                        print('      (Spot switch)')
+                                        resume_idx = time_diff.index.get_loc(time_df.loc[(time_df.dt > pd.Timedelta(seconds=1)), 't'].iloc[0])
+                                        resume_time = time_index.iloc[resume_idx]
+                                        print(f'      {resume_time}')
+                                        stop_time = time_index.iloc[resume_idx - 1]
+                                        # resume_time = pd.to_datetime(time_df.loc[time_df.dt > pd.Timedelta(seconds=1)].t.iloc[0],format='%Y-%m-%d %H:%M:%S.%f')  # overwrite resume time if spot switch (more precise)
+                                        interlock_time = (resume_time - stop_time).total_seconds()
+                                        if global_spot_switches:
+                                            if abs(total_spot_switch - global_spot_switches[-1]) > 0.1:
+                                                total_spot_switch -= interlock_time
+                                        else:
+                                            total_spot_switch -= interlock_time
+                                    else:  # Interlock during energy switch
+                                        print('      (Energy switch)')
+                                        interlock_time = (resume_time - stop_time).total_seconds()
+                                        if global_energy_switches:
+                                            if total_energy_switch - global_energy_switches[-1] > 3:
+                                                total_energy_switch -= interlock_time
+                                        else:
+                                            total_energy_switch -= interlock_time
+                                                                        
                                     total_interlock += interlock_time
-                                else:
-                                    interlock_time = (resume_time - stop_time).total_seconds()
-                                    total_interlock += (resume_time - stop_time).total_seconds()
-                                has_pause = False
-
-                            elif line.__contains__('PAUSE_REQUESTED'):
-                                print(f'  /!\ Interlock detected in fraction {x + 1} ({fx_id})')
-                                pause_time = pd.to_datetime(events[i - 1].split(',')[0], format='%d/%m/%Y %H:%M:%S.%f')
-                                has_pause = True
-                            
-                            if has_interlock and line.__contains__('Layer'):
-                                interlock_layer_id = int(line.split('Layer ')[-1].split(':')[0])
-                                # assert interlock_layer_id is int
-                                interlock_layer_df = beam_df.loc[beam_df.LAYER_ID == interlock_layer_id]
-                                time_diff = interlock_layer_df.index.to_series().diff().dropna()  # Calculate the time difference between consecutive rows
-
-                                # Check if any time differences are greater than 1 second
-                                if (time_diff > pd.Timedelta(seconds=1)).any():  # Interlock during spot switch
-                                    total_spot_switch -= interlock_time
-                                else:  # Interlock during energy switch
-                                    total_energy_switch -= interlock_time
-                                
-                                has_interlock = False
+                                    has_interlock = False  # interlock handled
                                    
                 global_drills.append(total_drill_time), global_spot_switches.append(total_spot_switch), global_energy_switches.append(total_energy_switch), global_interlocks.append(total_interlock)
                 totals.append(total_drill_time + total_spot_switch + total_energy_switch)
@@ -2088,9 +2099,9 @@ class MachineLog():
             plt.tight_layout()
             plt.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_beamtime.png', dpi=300)        
             # plt.show()
-        # global_plan_delivery_times = [t for t in global_plan_delivery_times if t != 0]
-        # print('_____________________________________________________')
-        # print(f'Total beamtime\t{round(np.mean(global_plan_delivery_times), 2)} ({round(np.std(global_plan_delivery_times), 2)})\n')
+        global_plan_delivery_times = [t for t in global_plan_delivery_times if t != 0]
+        print('_____________________________________________________')
+        print(f'Total beamtime\t{round(np.mean(global_plan_delivery_times), 2)} ({round(np.std(global_plan_delivery_times), 2)})\n')
 
 
     def plan_creator(self, fraction, mode):
@@ -3356,12 +3367,12 @@ if __name__ == '__main__':
     # log = MachineLog(root_dir)
     # log.plan_creator(mode='all', fraction='all')
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
-    # checkpoint = '1180747'
-    # checkpoint_reached = False
+    checkpoint = '1635796'
+    checkpoint_reached = False
     for id in ponaqua_qualified:
-    #     if id == checkpoint: checkpoint_reached = True
-    #     if not checkpoint_reached: continue
-        if id != '1635796': continue
+        if id == checkpoint: checkpoint_reached = True
+        # if checkpoint_reached: continue
+        # if id != '1367926': continue
         log = MachineLog(os.path.join(root_dir, id))
         # log.split_sigma()
         # log.prepare_deltaframe()
