@@ -957,7 +957,7 @@ class MachineLog():
         if verbose: print(f'Looking for beam-ID {beam_id} with GTR{gtr_angle}, n_layers = {n_layers}, E = [{np.round(min(log_energies), 1)} .. {np.round(max(log_energies), 1)}]')
 
         # auto-location of plan DICOM    
-        delivered = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\04_MA_PSQA_2024\DeliveredPlans'
+        delivered = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\DeliveredPlans'
         plan_dir = os.path.join(delivered, self.patient_id)
         if not os.path.isdir(delivered):
             plan_dir = r'/home/luke/Scripts/Logfile_Extraction/1676348/DeliveredPlans'        
@@ -1954,7 +1954,7 @@ class MachineLog():
         sns.set_style({"xtick.direction": "in","ytick.direction": "in", "axes.axisbelow":"line"})
         global_plan_delivery_times = [0 for fx in self.fraction_list]
         for beam_id in beam_ids:
-            fig, axs = plt.subplots(4, 1, sharex=True, figsize=(8, 8), gridspec_kw={'height_ratios': [3, 1, 1, 1]})
+            fig, axs = plt.subplots(4, 1, sharex=True, figsize=(7, 7), gridspec_kw={'height_ratios': [3, 1, 1, 1]})
             # fig.subplots_adjust(hspace=0.0, wspace=0.0)
             ax0 = fig.add_subplot(111, frameon=False)
             ax0.set_xticks([]), ax0.set_yticks([])
@@ -2051,7 +2051,11 @@ class MachineLog():
                                     total_interlock += interlock_time
                                     has_interlock = False  # interlock handled
                                    
-                global_drills.append(total_drill_time), global_spot_switches.append(total_spot_switch), global_energy_switches.append(total_energy_switch), global_interlocks.append(total_interlock)
+                global_drills.append(total_drill_time), global_spot_switches.append(total_spot_switch), global_energy_switches.append(total_energy_switch)
+                if total_interlock > 0:
+                    global_interlocks.append(total_interlock)
+                else:
+                    global_interlocks.append(np.nan)
                 totals.append(total_drill_time + total_spot_switch + total_energy_switch)
                 global_plan_delivery_times[x] += (total_drill_time + total_spot_switch + total_energy_switch)
             
@@ -2069,35 +2073,36 @@ class MachineLog():
             print(f'Mean field delivery time:\t{round(np.mean(totals), 2)} ({round(np.std(totals), 2)})\n')
 
             ec = 'none'
-            axs[0].bar(range(1, len(global_drills) + 1), global_drills, label='Spot drill time', color=cmap[0], edgecolor=ec, zorder=0)
-            axs[0].bar(range(1, len(global_spot_switches) + 1), global_spot_switches, bottom=global_drills, label='Spot switching time', color=cmap[1], edgecolor=ec, zorder=2)
-            axs[0].bar(range(1, len(global_energy_switches) + 1), global_energy_switches, bottom=global_spot_switches + global_drills, label='Energy switching time', color=cmap[2], edgecolor=ec, zorder=2)
+            axs[0].bar(range(1, len(global_drills) + 1), global_drills, label='Spot drill', color=cmap[0], edgecolor=ec, zorder=0)
+            axs[0].bar(range(1, len(global_spot_switches) + 1), global_spot_switches, bottom=global_drills, label='Spot switching', color=cmap[1], edgecolor=ec, zorder=2)
+            axs[0].bar(range(1, len(global_energy_switches) + 1), global_energy_switches, bottom=global_spot_switches + global_drills, label='Energy switching', color=cmap[2], edgecolor=ec, zorder=2)
             axs[0].bar(range(1, len(global_interlocks) + 1), global_interlocks, bottom=global_spot_switches + global_drills + global_energy_switches, label='Pause (interlock)', color=cmap[4], edgecolor=ec, zorder=2)
             axs[3].plot(range(1, len(global_drills) + 1), global_drills, marker='o', color='black', markerfacecolor=cmap[0], label='Spot drill time')
             axs[3].axhline(np.mean(global_drills), ls='--', color='black', lw=1.0, zorder=-1, label='Mean')
             axs[3].set_xticks([1, 5, 10, 15, 20, 25, 30, 35, 40])
-            axs[2].plot(range(1, len(global_spot_switches) + 1), global_spot_switches, marker='o', color='black', markerfacecolor=cmap[1], label='Spot switching time')  
+            axs[2].plot(range(1, len(global_spot_switches) + 1), global_spot_switches, marker='s', color='black', markerfacecolor=cmap[1], label='Spot switching time')  
             axs[2].axhline(np.mean(global_spot_switches), ls='--', color='black', lw=1.0, zorder=-1, label='Mean')
-            axs[1].plot(range(1, len(global_energy_switches) + 1), global_energy_switches, marker='o', color='black', markerfacecolor=cmap[2], label='Energy switching time')  
+            axs[1].plot(range(1, len(global_energy_switches) + 1), global_energy_switches, marker='^', color='black', markerfacecolor=cmap[2], label='Energy switching time')  
             axs[1].axhline(np.mean(global_energy_switches), ls='--', color='black', lw=1.0, zorder=-1, label='Mean')
 
-            # axs[1].set_ylim(30, 37.5)
-            # axs[1].set_yticks([29, 31, 33])
-            # axs[2].set_ylim(0, 100)
-            # axs[2].set_yticks([4.46, 4.48, 4.5])
-            # axs[3].set_ylim(18.75, 20.)
-            # axs[3].set_yticks([6.2, 6.7, 7.2])
+            axs[0].set_ylim(0, 125)
+            axs[1].set_ylim(29, 34)
+            axs[1].set_yticks([29, 31, 33])
+            axs[2].set_ylim(4.46, 4.51)
+            axs[2].set_yticks([4.46, 4.48, 4.5])
+            axs[3].set_ylim(6.2, 7.6)
+            axs[3].set_yticks([6.2, 6.7, 7.2])
 
             for i, ax in enumerate(axs):
                 if i == 0:
-                    ax.legend(loc='upper right')
+                    ax.legend(loc='upper left')
                     ax.grid(axis='y')
                 else:
-                    ax.legend(loc='upper right', ncol=2)
+                    ax.legend(loc='upper left', ncol=2)
                 ax.set_axisbelow(True)
                 # ax.grid(axis='both')        
             plt.tight_layout()
-            plt.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_beamtime.png', dpi=300)        
+            plt.savefig(f'{output_dir}/{self.patient_id}_{beam_id}_beamtime.pdf')        
             # plt.show()
         global_plan_delivery_times = [t for t in global_plan_delivery_times if t != 0]
         print('_____________________________________________________')
@@ -2881,8 +2886,16 @@ class MachineLog():
         sns.set(style='ticks', context='paper', font_scale=2.)
         sns.set_style({"xtick.direction": "in","ytick.direction": "in", "ax.axesbelow":True})
 
+        # # scatterplots for Kristina - delete
+        # # sns.scatterplot(data=df, x='DRILL_TIME(ms)', y='BEAM_CURRENT(A)')
+        # sns.histplot(df['DRILL_TIME(ms)'], label=f"Mean: {df['DRILL_TIME(ms)'].mean().round(3)} ms")
+        # # plt.yscale('log')
+        # plt.legend()
+        # plt.show()
+        # return None
+
         # plt.rcParams.update({'font.size': 10})
-        cm = 1 / 2.54
+        mm = 1 / 25.4
         figh, axh = plt.subplots(3, 2, figsize=(16, 12), constrained_layout=True)
         axh = axh.flatten()
         cmap = sns.color_palette('Paired', 8)
@@ -2891,14 +2904,20 @@ class MachineLog():
         bw1 = 5 / 80
         bw2 = 0.6 / 80
         ec = 'black'
-        violin_lw = 1.
+        violin_lw = 1.0
 
+        # original
         h1 = sns.histplot(df['DELTA_X(mm)_MEAN'],color=cmap[0], ax=axh[0], label='$\mu_{x}$', binrange=(-2.5, 2.5), binwidth=bw1, edgecolor=ec, zorder=2)
         h2 = sns.histplot(df['DELTA_Y(mm)_MEAN'],color=cmap[1], ax=axh[0], label='$\mu_{y}$', binrange=(-2.5, 2.5), binwidth=bw1, edgecolor=ec, zorder=1)
         h3 = sns.histplot(df['DELTA_X(mm)_STD'],color=cmap[6], ax=axh[1], label='$\sigma_{x}$', binrange=(0., 0.6), binwidth=bw2, edgecolor=ec, zorder=2)
         h4 = sns.histplot(df['DELTA_Y(mm)_STD'],color=cmap[7], ax=axh[1], label='$\sigma_{y}$', binrange=(0., 0.6), binwidth=bw2, edgecolor=ec, zorder=1)
 
+        # COV evaluation
+        # h1 = sns.histplot(df['DELTA_X(mm)_STD'] / df['DELTA_X(mm)_MEAN'],color=cmap[0], ax=axh[0], label='$COV_{x}$', binrange=(-2.5, 2.5), binwidth=bw1, edgecolor=ec, zorder=2)
+        # h2 = sns.histplot(df['DELTA_Y(mm)_STD'] / df['DELTA_Y(mm)_MEAN'],color=cmap[1], ax=axh[0], label='$COV_{y}$', binrange=(-2.5, 2.5), binwidth=bw1, edgecolor=ec, zorder=1)
+
         axh[0].set_xlabel('$\mu_{x,y}$ [mm]')
+        # axh[0].set_xlabel('$COV_{x,y}$')
         axh[0].set_xlim(-2.5, 2.5)
         axh[0].xaxis.set_major_formatter(FormatStrFormatter('%.1f'))
         axh[0].grid(axis='both')
@@ -2926,28 +2945,28 @@ class MachineLog():
         # sns.set(style='darkgrid', context='paper', font_scale=1.5)
         # fig, axs = plt.subplots(2, 1, figsize=(7, 7))
         target_cols = ['DELTA_X(mm)_MEAN', 'DELTA_X(mm)_STD', 'DELTA_Y(mm)_MEAN', 'DELTA_Y(mm)_STD']  #, ['DELTA_MU_MEAN', 'DELTA_MU_STD', 'MEDIAN_MU_STD']] #, ['DELTA_MU_MEAN', 'DELTA_MU_STD', 'MEDIAN_MU_STD']]
+        ms = 10
         legend = [[Patch(facecolor=cmap[0], edgecolor=ec, alpha=0.8, label=f'$x$-accuracy'), 
-                  Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & median')],
+                  Line2D([0], [0], marker='|', linewidth=8, color='black', markeredgecolor='white', markersize=ms, label='IQR & median')],
                   [Patch(facecolor=cmap[6], edgecolor=ec, alpha=0.8, label=f'$x$-reproducibility'), 
-                  Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & median')],
+                  Line2D([0], [0], marker='|', linewidth=8, color='black', markeredgecolor='white', markersize=ms, label='IQR & median')],
                   [Patch(facecolor=cmap[1], edgecolor=ec, alpha=0.8, label=f'$y$-accuracy'), 
-                  Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & median')],
+                  Line2D([0], [0], marker='|', linewidth=8, color='black', markeredgecolor='white', markersize=ms, label='IQR & median')],
                   [Patch(facecolor=cmap[7], edgecolor=ec, alpha=0.8, label=f'$y$-reproducibility'), 
-                  Line2D([0], [0], marker='o', linewidth=8, color='black', markerfacecolor='white', label='IQR & median')]]
+                  Line2D([0], [0], marker='|', linewidth=8, color='black', markeredgecolor='white', markersize=ms, label='IQR & median')]]
 
         for i, (ax, col) in enumerate(zip(axh[2:], target_cols)):
             if i < 2:
                 if i % 2 == 0:
-                    vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=col, color=cmap[0], ax=ax, width=10, scale='width', cut=0, order=np.arange(360), linewidth=1.5)
+                    vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=col, color=cmap[0], ax=ax, width=10, density_norm='width', cut=0, order=[float(angle) for angle in np.arange(360)], linewidth=violin_lw)
                 else:
-                    vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=col, color=cmap[6], ax=ax, width=10, scale='width', cut=0, order=np.arange(360), linewidth=1.5)
-
+                    vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=col, color=cmap[6], ax=ax, width=10, density_norm='width', cut=0, order=[float(angle) for angle in np.arange(360)], linewidth=violin_lw)
 
             else:
                 if i % 2 == 0:
-                    vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=col, color=cmap[1], ax=ax, width=10, scale='width', cut=0, order=np.arange(360), linewidth=1.5)
+                    vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=col, color=cmap[1], ax=ax, width=10, density_norm='width', cut=0, order=[float(angle) for angle in np.arange(360)], linewidth=violin_lw)
                 else:
-                    vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=col, color=cmap[7], ax=ax, width=10, scale='width', cut=0, order=np.arange(360), linewidth=1.5)
+                    vp1 = sns.violinplot(data=df, x='GANTRY_ANGLE', y=col, color=cmap[7], ax=ax, width=10, density_norm='width', cut=0, order=[float(angle) for angle in np.arange(360)], linewidth=violin_lw)
  
             # bp1 = sns.boxplot(data=df, x='GANTRY_ANGLE', y=cols[1], color=cmap[i], ax=ax, width=10, order=np.arange(360), showfliers=True)
             for violin in ax.collections:
@@ -2961,24 +2980,26 @@ class MachineLog():
             ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
             if i % 2 == 0:
                 ax.axhline(0., ls='--', c='black', zorder=0.8)
-                ax.set_ylim(-2., 3.2)
+                ax.set_ylim(-2., 3.)
             else:
                 ax.set_ylim(0, 1.)
             
             ax.set_xlabel(None)
             ax.set_xlim(-10, )
             ax.set_xticks([0, 45, 90, 135, 180, 225, 270, 315])
+            ax.xaxis.set_major_formatter(FormatStrFormatter('%.0f'))
             ax.legend(handles=legend[i], loc='upper right')
             ax.set_axisbelow(True)
             ax.grid(axis='y')
             tick_every = 45
             # [tick.set_visible(False) for (i, tick) in enumerate(ax.get_xticklabels()) if i % tick_every != 0]
-
         
-        # axs[0].legend(handles=legend, loc='upper right')
+        # axh[0].legend(handles=legend, loc='upper right')
         # axs[0].set_title('Treatment fields grouped by gantry position')
         # axs[0].set_ylim(0, .8)
+        axh[2].set_xlabel('Gantry angle [°]')
         axh[2].set_ylabel('$\mu_{x}$ [mm]')
+        axh[3].set_xlabel('Gantry angle [°]')
         axh[3].set_ylabel('$\sigma_{x}$ [mm]')
         axh[4].set_ylabel('$\mu_{y}$ [mm]')
         axh[4].set_xlabel('Gantry angle [°]')
@@ -2988,7 +3009,7 @@ class MachineLog():
         # fig.suptitle(f'             Log-file Reproducibility', fontweight='bold')
         figh.tight_layout()
         figh.subplots_adjust(hspace=0.3)
-        figh.savefig(os.path.join(out, 'boxplots_precision.png'), dpi=300)
+        figh.savefig(os.path.join(out, 'Fig2_violinplots_print.pdf'))
         
         # outliers
         Q1 = df.quantile(0.25)
@@ -3095,25 +3116,27 @@ class MachineLog():
 
             sns.set(style='ticks', context='paper', font_scale=1.5)
             sns.set_style({"xtick.direction": "in","ytick.direction": "in", "ax.axesbelow":True, "xtick.top":True, "ytick.right":True})
-            fig1, ax = plt.subplots(1, 1, figsize=(8, 4), constrained_layout=True)
-            fig2, axs = plt.subplots(1, 2, sharex=True, sharey=True, figsize=(8, 4), constrained_layout=True)
+            fig1, ax = plt.subplots(1, 1, figsize=(7, 4), constrained_layout=True)
+            fig2, axs = plt.subplots(1, 2, sharex=True, sharey=True, figsize=(7, 4), constrained_layout=True)
             # cax = fig2.add_axes([0.1, 0., 0.8, 0.05])
-            # fig2.subplots_adjust(wspace=0.1)
+            fig2.subplots_adjust(wspace=0.1)
             norm = plt.Normalize(0, 0.3)
             cmap = plt.get_cmap('YlOrBr')
             ec = 'black'
-            h1 = sns.histplot(data=hist1, x='DELTA_X(mm)_STD', ax=ax, color=cmap(0.4), ec=ec, binwidth=0.3/80, binrange=(0, 0.3), label='Beam 1 - 180°', zorder=2)
-            h2 = sns.histplot(data=hist2, x='DELTA_X(mm)_STD', ax=ax, color=cmap(0.9), ec=ec, binwidth=0.3/80, binrange=(0, 0.3), label='Beam 2 - 90°', zorder=1)
-            s1 = sns.scatterplot(data=df1, x='X_POSITION(mm)', y='Y_POSITION(mm)', hue='DELTA_X(mm)_STD', hue_norm=norm, ec=ec, size='MU', size_norm=(0.02, 0.8), sizes=(30, 200), ax=axs[0], palette='YlOrBr', legend=None)
-            s2 = sns.scatterplot(data=df2, x='X_POSITION(mm)', y='Y_POSITION(mm)', hue='DELTA_X(mm)_STD', hue_norm=norm, ec=ec, size='MU', size_norm=(0.02, 0.8), sizes=(30, 200), ax=axs[1], palette='YlOrBr', legend='brief')
+            h1 = sns.histplot(data=hist1, x='DELTA_X(mm)_STD', ax=ax, color=cmap(0.4), ec=ec, binwidth=0.3/80, binrange=(0, 0.3), label='Beam 1 - 180°', zorder=1)
+            h2 = sns.histplot(data=hist2, x='DELTA_X(mm)_STD', ax=ax, color=cmap(0.9), ec=ec, binwidth=0.3/80, binrange=(0, 0.3), label='Beam 2 - 90°', zorder=2)
+            s1 = sns.scatterplot(data=df1, x='X_POSITION(mm)', y='Y_POSITION(mm)', hue='DELTA_X(mm)_STD', hue_norm=norm, ec=ec, size='MU', size_norm=(0.02, 0.8), sizes=(30, 140), ax=axs[0], palette='YlOrBr', legend=None)
+            s2 = sns.scatterplot(data=df2, x='X_POSITION(mm)', y='Y_POSITION(mm)', hue='DELTA_X(mm)_STD', hue_norm=norm, ec=ec, size='MU', size_norm=(0.02, 0.8), sizes=(30, 140), ax=axs[1], palette='YlOrBr', legend='brief')
             h,l = s2.get_legend_handles_labels()
+            ax.grid(axis='both')
+            ax.set_axisbelow(True)  # grid behind data
             ax.legend()
             ax.set_ylim(0.001, 350)
-            ax.text(0.02, 0.042, 'A', color='black', fontweight='bold', fontsize=24., transform=ax.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
-            ax.grid(axis='both')
+            # ax.text(0.02, 0.042, 'A', color='black', fontweight='bold', fontsize=24., transform=ax.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
+            ax.text(0.023, 0.042, 'A', color='black', fontweight='bold', fontsize=24., transform=ax.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
             axs[1].get_legend().remove()
             axs[1].legend(h[6:], l[6:], bbox_to_anchor=(0., 1.), loc=2, markerscale=1.)
-            axs[1].text(-92.5, -42.5, 'C', color='black', fontweight='bold', fontsize=24., ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
+            axs[1].text(0.046, 0.055, 'C', color='black', fontweight='bold', fontsize=24., transform=axs[1].transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
             axs[1].grid(axis='both')
             # axs[1].set_title(f'Beam 2 ({df2.GANTRY_ANGLE.iloc[0]}°)')
             ax.set_xlabel('$\sigma_{x}$ [mm]')
@@ -3121,11 +3144,12 @@ class MachineLog():
             axs[0].set_xlabel('$x$ [mm]'), axs[1].set_xlabel('$x$ [mm]')
             # axs[0].set_title(f'Beam 1 ({df1.GANTRY_ANGLE.iloc[0]}°)')
             axs[0].set_ylabel('$y$ [mm]')
-            axs[0].text(-93, -42.5, 'B', color='black', fontweight='bold', fontsize=24., ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
+            axs[0].text(0.046, 0.055, 'B', color='black', fontweight='bold', fontsize=24., transform=axs[0].transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
             axs[0].grid(axis='both')
-            axs[0].set_xticks([-90, -60, -30,  0, 30, 60])
             axs[0].set_ylim(-50, 90)
             axs[0].set_xlim(-100, 80)
+            axs[0].set_xticks([-90, -60, -30,  0, 30, 60])
+            axs[0].set_yticks([-60, -30,  0, 30, 60, 90])
             # for ax in axs:
             #     ax.grid()
             sm = plt.cm.ScalarMappable(cmap='YlOrBr', norm=norm)
@@ -3135,8 +3159,8 @@ class MachineLog():
             # fig2.colorbar(sm, orientation='horizontal', cax=cax, label='$\sigma_{\Delta x}$ [mm]')
             fig2.colorbar(sm, ax=axs.ravel().tolist(), orientation='horizontal', aspect=40, label='$\sigma_{x}$ [mm]')
             # fig2.suptitle(f'''PATIENT {self.patient_id} ({bs_dict['BODY_SITE'][int(self.patient_id)]})''', fontweight='bold')
-            fig1.savefig(os.path.join(out, f'{self.patient_id}_beam_{beam_id}_split_paper.png'), dpi=600)  
-            fig2.savefig(os.path.join(out, f'{self.patient_id}_beam_{beam_id}_sigma_paper.png'), dpi=600)   
+            fig1.savefig(os.path.join(out, f'{self.patient_id}_beam_{beam_id}_split_paper.pdf'))
+            fig2.savefig(os.path.join(out, f'{self.patient_id}_beam_{beam_id}_sigma_paper.pdf')) 
 
 
     def prepare_psqa(self) -> None:
@@ -3354,45 +3378,16 @@ class MachineLog():
 
 
 if __name__ == '__main__':
-    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\04_MA_PSQA_2024\Logfiles\LogfilesConverted\1783893'
-    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\PSQA\converted'
     root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\Logfiles\converted'
     # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\01_SpotShape\Logfiles_Spotshape_QA\converted'
-    # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Lukas\Logfile_Extraction\Logfiles'
-    # root_dir = r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\4D-PBS-LogFileBasedRecalc\Patient_dose_reconstruction\MOBILTest04_665914\Logfiles'
-    # root_dir = r'N:\fs4-HPRT\HPRT-Docs\Yazeed\TestData\Logfiles\LogfilesConverted'
-    # log.prepare_dataframe()
-    # log.sss_boxplot()
-
-    # log = MachineLog(root_dir)
-    # log.plan_creator(mode='all', fraction='all')
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
-    checkpoint = '1635796'
-    checkpoint_reached = False
     for id in ponaqua_qualified:
-        if id == checkpoint: checkpoint_reached = True
-        # if checkpoint_reached: continue
-        # if id != '1367926': continue
         log = MachineLog(os.path.join(root_dir, id))
-        # log.split_sigma()
-        # log.prepare_deltaframe()
-        # log.plan_creator(fraction='all', mode='all')
-        # yshift = log.patient_delta_df['DELTA_Y(mm)']
-        # miny, maxy = yshift.min(), yshift.max()
-        # print(id, miny, maxy)
-        # print(log.patient_delta_df.loc[log.patient_delta_df['DELTA_Y(mm)'].idxmin()], log.patient_delta_df.loc[log.patient_delta_df['DELTA_Y(mm)'].idxmax()])
+        log.prepare_dataframe()
+        log.prepare_deltaframe()
+        log.prepare_sss_dataframe()
+        log.plan_creator(fraction='all', mode='all')
         log.beam_timings()
-        # log.prepare_dataframe()
-        # log.prepare_deltaframe()
-        # log.prepare_sss_dataframe()
-        # log.sss_histograms(mode='pos')
-        # log.split_sigma()
-        # log.plot_beam_layers()
-        # log.sss_boxplot()
-        # log.corrupted_maps()
-        # log.prepare_psqa()
-        # log.eval_psqa()    
-        
-else:
-    print('>> Module', __name__, 'loaded')
+        log.sss_boxplot()
+        log.split_sigma()
     
