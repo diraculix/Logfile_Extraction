@@ -2899,7 +2899,7 @@ class MachineLog():
         figh, axh = plt.subplots(3, 2, figsize=(16, 12), constrained_layout=True)
         axh = axh.flatten()
         cmap = sns.color_palette('Paired', 8)
-        subfigures = ['A', 'D', 'B', 'E', 'C', 'F']
+        subfigures = ['(a)', '(d)', '(b)', '(e)', '(c)', '(f)']
 
         bw1 = 5 / 80
         bw2 = 0.6 / 80
@@ -2933,7 +2933,7 @@ class MachineLog():
             # cx = rx + rectangle.get_width()/2.0
             # cy = ry + rectangle.get_height()/2.0
             # ax.annotate(subfigures[i], (0, 1), color='black', weight='bold', xycoords='axes fraction', ha='left', va='top')
-            ax.text(0.021, 0.954, f'{subfigures[i]}', color='black', fontweight='bold', fontsize=24., transform=ax.transAxes, ha='left', va='top', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
+            ax.text(-0.15, 1.1, f'{subfigures[i]}', color='black', fontweight='bold', fontsize=24., transform=ax.transAxes, ha='left', va='top')
             for container in ax.patches:
                 # container.set_linewidth(violin_lw)
                 pass
@@ -3006,9 +3006,10 @@ class MachineLog():
         axh[5].set_ylabel('$\sigma_{y}$ [mm]')
         axh[5].set_xlabel('Gantry angle [°]')
         # axs[2].set_ylim(0, 0.005)
-        # fig.suptitle(f'             Log-file Reproducibility', fontweight='bold')
+        # fig.suptitle(f'Log-file Reproducibility', fontweight='bold')
         figh.tight_layout()
         figh.subplots_adjust(hspace=0.3)
+        figh.subplots_adjust(wspace=0.2)
         figh.savefig(os.path.join(out, 'Fig2_violinplots_print.pdf'))
         
         # outliers
@@ -3133,10 +3134,10 @@ class MachineLog():
             ax.legend()
             ax.set_ylim(0.001, 350)
             # ax.text(0.02, 0.042, 'A', color='black', fontweight='bold', fontsize=24., transform=ax.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
-            ax.text(0.023, 0.042, 'A', color='black', fontweight='bold', fontsize=24., transform=ax.transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
+            ax.text(-0.15, .92, '(a)', color='black', fontweight='bold', fontsize=24., transform=ax.transAxes, ha='left', va='bottom')
             axs[1].get_legend().remove()
             axs[1].legend(h[6:], l[6:], bbox_to_anchor=(0., 1.), loc=2, markerscale=1.)
-            axs[1].text(0.046, 0.055, 'C', color='black', fontweight='bold', fontsize=24., transform=axs[1].transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
+            # axs[1].text(-0.15, 1.1, 'C', color='black', fontweight='bold', fontsize=24., transform=axs[1].transAxes, ha='left', va='bottom')
             axs[1].grid(axis='both')
             # axs[1].set_title(f'Beam 2 ({df2.GANTRY_ANGLE.iloc[0]}°)')
             ax.set_xlabel('$\sigma_{x}$ [mm]')
@@ -3144,7 +3145,7 @@ class MachineLog():
             axs[0].set_xlabel('$x$ [mm]'), axs[1].set_xlabel('$x$ [mm]')
             # axs[0].set_title(f'Beam 1 ({df1.GANTRY_ANGLE.iloc[0]}°)')
             axs[0].set_ylabel('$y$ [mm]')
-            axs[0].text(0.046, 0.055, 'B', color='black', fontweight='bold', fontsize=24., transform=axs[0].transAxes, ha='left', va='bottom', bbox=dict(facecolor='white', edgecolor='black', pad=10.0))
+            axs[0].text(-0.3, .9, '(b)', color='black', fontweight='bold', fontsize=24., transform=axs[0].transAxes, ha='left', va='bottom')
             axs[0].grid(axis='both')
             axs[0].set_ylim(-50, 90)
             axs[0].set_xlim(-100, 80)
@@ -3383,11 +3384,11 @@ if __name__ == '__main__':
     ponaqua_qualified = [id.strip('\n') for id in open(r'N:\fs4-HPRT\HPRT-Data\ONGOING_PROJECTS\AutoPatSpecQA\02_cCTPatients\qualified_IDs.txt', 'r').readlines()]
     for id in ponaqua_qualified:
         log = MachineLog(os.path.join(root_dir, id))
-        log.prepare_dataframe()
-        log.prepare_deltaframe()
-        log.prepare_sss_dataframe()
-        log.plan_creator(fraction='all', mode='all')
-        log.beam_timings()
-        log.sss_boxplot()
-        log.split_sigma()
+        # log.prepare_dataframe()
+        # log.prepare_deltaframe()
+        # log.prepare_sss_dataframe()
+        # log.plan_creator(fraction='all', mode='all')
+        # log.beam_timings()
+        # log.sss_boxplot()
+        # log.split_sigma()
     
